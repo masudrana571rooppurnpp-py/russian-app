@@ -108,6 +108,7 @@ function buildQueue(deck) {
 
 // ---------- navigation ----------
 function go(tab) {
+  micMemo = {};
   document.querySelectorAll('#nav button').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
   window.scrollTo(0, 0);
   if (tab === 'home') renderHome();
@@ -153,7 +154,7 @@ function renderHome() {
     </section>
     <section class="card tip">
       <h2>How to learn</h2>
-      <p>1) Learn the alphabet first (Alphabet tab). 2) Study about 10 new words a day with the flashcards. 3) Take a quiz. Come back every day: the app brings old words back just before you forget them.</p>
+      <p>1) Learn the alphabet first (Alphabet tab). 2) Study about 10 new words a day with the flashcards. 3) Take a quiz. In every section, tap 🎤 and say the word aloud to get a correction. Come back every day: the app brings old words back just before you forget them.</p>
     </section>
     <button class="btn small" id="reset">Reset my progress</button>`;
 
@@ -198,6 +199,7 @@ function showLetter(i) {
         <button class="btn" id="sl">🔊 Letter</button>
         <button class="btn" id="sw">🔊 Word</button>
       </div>
+      <div class="mic-slot"></div>
       <a class="lnk" target="_blank" rel="noopener" href="${transLink(a[3])}">No sound? Listen on Google Translate</a>
       <button class="btn alt" id="sc">Close</button>
     </div>`;
@@ -205,6 +207,7 @@ function showLetter(i) {
   $('#sc').onclick = close;
   $('#sw').onclick = () => speak(a[3]);
   $('#sl').onclick = () => speak(a[0].charAt(0));
+  mountMic(sh.querySelector('.mic-slot'), a[3], a[4], 'Say the word: ' + a[3]);
 }
 
 // ---------- flashcards ----------
@@ -239,12 +242,14 @@ function renderStudy(fresh) {
       ${s.shown ? `<div class="tr">${c.tr}</div><div class="en">${c.en}</div>` : '<div class="muted">Tap to reveal</div>'}
       <button class="speak" id="say" aria-label="Listen">🔊</button>
     </section>
+    <div class="mic-slot"></div>
     <a class="lnk" target="_blank" rel="noopener" href="${transLink(c.ru)}">No sound? Listen on Google Translate</a>
     ${s.shown
       ? '<div class="rate"><button class="r0" data-r="0">Again</button><button class="r1" data-r="1">Good</button><button class="r2" data-r="2">Easy</button></div>'
       : '<button class="btn" id="show">Show answer</button>'}`;
 
   $('#say').onclick = (e) => { e.stopPropagation(); speak(c.ru); };
+  mountMic(view.querySelector('.mic-slot'), c.ru, c.tr, 'Say it in Russian');
   $('#flash').onclick = () => { if (!s.shown) { s.shown = true; renderStudy(); } };
   const showBtn = $('#show');
   if (showBtn) showBtn.onclick = () => { s.shown = true; renderStudy(); };
@@ -254,6 +259,7 @@ function renderStudy(fresh) {
       s.queue.shift();
       s.shown = false;
       review(c, r);
+      delete micMemo[c.ru];
       if (r === 0) s.queue.push(c); else s.done++;
       renderStudy();
     };
@@ -291,6 +297,7 @@ function buildVocabQuiz(mode) {
       opts: opts.map((o) => (toRu ? `${o.ru} <small>${o.tr}</small>` : o.en)),
       ans: opts.indexOf(c),
       card: c,
+      mic: { t: c.ru, tr: c.tr },
       reveal: `${c.ru} · ${c.tr} · ${c.en}`,
     };
   });
@@ -303,7 +310,7 @@ function buildAlphaQuiz() {
     return {
       prompt: a[0], sub: '', say: null, auto: false,
       opts: opts.map((o) => o[1]),
-      ans: opts.indexOf(a), card: null,
+      ans: opts.indexOf(a), card: null, mic: { t: a[3], tr: a[4] },
       reveal: `${a[0]} = ${a[1]} (${a[2]})`,
     };
   });
@@ -344,10 +351,11 @@ function renderQz() {
     <div class="opts">
       ${q.opts.map((o, i) => `<button class="opt ${done ? (i === q.ans ? 'right' : i === qz.picked ? 'wrong' : '') : ''}" data-i="${i}" ${done ? 'disabled' : ''}>${o}</button>`).join('')}
     </div>
-    ${done ? `<p class="fb">${q.reveal}</p><button class="btn" id="next">${qz.i + 1 === qz.items.length ? 'See result' : 'Next'}</button>` : ''}`;
+    ${done ? `<p class="fb">${q.reveal}</p><div class="mic-slot"></div><button class="btn" id="next">${qz.i + 1 === qz.items.length ? 'See result' : 'Next'}</button>` : ''}`;
 
   const sayBtn = $('#say');
   if (sayBtn) sayBtn.onclick = () => speak(q.say);
+  if (done && q.mic) mountMic(view.querySelector('.mic-slot'), q.mic.t, q.mic.tr, 'Now say: ' + q.mic.t);
   if (q.auto && !q.spoken) { q.spoken = true; speak(q.say); }
 
   view.querySelectorAll('.opt').forEach((b) => {
@@ -362,7 +370,7 @@ function renderQz() {
     };
   });
   const next = $('#next');
-  if (next) next.onclick = () => { qz.i++; qz.picked = null; renderQz(); };
+  if (next) next.onclick = () => { if (q.mic) delete micMemo[q.mic.t]; qz.i++; qz.picked = null; renderQz(); };
 }
 
 // ---------- speaking practice ----------
@@ -419,87 +427,106 @@ function grade(target, heard) {
 // </pure>
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-let sp = null;
-let recog = null;
+let micMemo = {};
+let activeRecog = null;
 
-function renderSpeak(fresh) {
-  if (fresh || !sp) sp = { queue: shuffle(cardsOf(state.deck)), i: 0, busy: false, res: null, msg: '' };
-  const c = sp.queue[sp.i % sp.queue.length];
+const MIC_ERR = {
+  'not-allowed': '🚫 Microphone blocked. Allow the microphone for this site (lock icon next to the address, or phone Settings → Apps → Chrome → Permissions).',
+  'service-not-allowed': '🚫 Microphone blocked. Allow it in your browser settings.',
+  'no-speech': "I didn't hear anything. Tap the button and speak right away.",
+  'audio-capture': '🎤 No microphone found.',
+  'network': '🌐 No internet. Speech checking needs a connection.',
+  'language-not-supported': '❌ Russian speech recognition is not available on this device.',
+};
+
+// Listens once and reports through callbacks: onstart, onresult(heard), onerror(message), onend.
+function listenOnce(cb) {
+  if (!SR) { cb.onerror('❌ This browser has no speech recognition. Open the app in Chrome.'); cb.onend(); return; }
+  if ('speechSynthesis' in window) speechSynthesis.cancel();
+  try { if (activeRecog) activeRecog.abort(); } catch (e) {}
+  const r = new SR();
+  activeRecog = r;
+  r.lang = 'ru-RU';
+  r.interimResults = false;
+  r.continuous = false;
+  r.maxAlternatives = 5;
+  let got = false, errored = false;
+  r.onresult = (e) => { got = true; cb.onresult(Array.from(e.results[0]).map((a) => a.transcript)); };
+  r.onerror = (e) => {
+    errored = true;
+    if (e.error === 'aborted') return;
+    cb.onerror(MIC_ERR[e.error] || 'Could not listen (' + e.error + '). Try again.');
+  };
+  r.onend = () => {
+    if (!got && !errored) cb.onerror("I didn't catch that. Try again.");
+    cb.onend();
+  };
+  cb.onstart();
+  try { r.start(); } catch (e) { cb.onerror('Could not start the microphone. Try again.'); cb.onend(); }
+}
+
+function feedbackHtml(res, tr) {
   const w = (o) => {
     if (o.exp === null) return `<span class="w extra"><small>extra word</small>${o.got}</span>`;
     if (o.got === null) return `<span class="w bad">${o.exp}<small>missing</small></span>`;
     if (o.s === 1) return `<span class="w ok">${o.exp}</span>`;
-    const cls = o.s >= 0.6 ? 'near' : 'bad';
-    return `<span class="w ${cls}">${o.exp}<small>you said: ${o.got}</small></span>`;
+    return `<span class="w ${o.s >= 0.6 ? 'near' : 'bad'}">${o.exp}<small>you said: ${o.got}</small></span>`;
   };
-  const r = sp.res;
-  const result = r ? `
-    <section class="card">
-      <h2>${r.g.pass ? (r.g.score >= 0.95 ? '🎉 Perfect!' : '👍 Good, almost there') : '🔁 Try again'} <span class="muted">${Math.round(r.g.score * 100)}%</span></h2>
-      <p class="muted">I heard: <b>${r.heard}</b></p>
-      <div class="words">${r.g.ops.map(w).join('')}</div>
-      ${r.g.pass ? '' : `<p class="muted" style="margin-top:10px">Tip: tap 🔊, listen carefully, then say it slowly. Sounds like: <b>${c.tr}</b></p>`}
-    </section>` : '';
+  const g = res.g;
+  return `
+    <section class="card fbk">
+      <h2>${g.pass ? (g.score >= 0.95 ? '🎉 Perfect!' : '👍 Good, almost there') : '🔁 Try again'} <span class="muted">${Math.round(g.score * 100)}%</span></h2>
+      <p class="muted">I heard: <b>${res.heard}</b></p>
+      <div class="words">${g.ops.map(w).join('')}</div>
+      ${g.pass ? '' : `<p class="muted" style="margin-top:10px">Tip: tap 🔊, listen carefully, then say it slowly. Sounds like: <b>${tr}</b></p>`}
+    </section>`;
+}
 
+// Puts a "say it" button and its feedback into an empty slot element. Works on any screen.
+function mountMic(slot, target, tr, label) {
+  if (!slot) return;
+  let busy = false, msg = '';
+  let res = micMemo[target] || null;
+  const draw = () => {
+    slot.innerHTML = `<button class="btn mic ${busy ? 'rec' : ''}" ${busy ? 'disabled' : ''}>${busy ? '🎤 Listening… speak now' : '🎤 ' + (label || 'Tap, then say it in Russian')}</button>${msg ? `<p class="fb">${msg}</p>` : ''}${res ? feedbackHtml(res, tr) : ''}`;
+    const b = slot.querySelector('button');
+    if (b) b.onclick = start;
+  };
+  const start = () => listenOnce({
+    onstart: () => { busy = true; msg = ''; res = null; delete micMemo[target]; draw(); },
+    onresult: (alts) => {
+      const t = norm(target);
+      const heard = alts.find((x) => norm(x) === t) || alts[0];
+      res = { heard, g: grade(target, heard) };
+      micMemo[target] = res;
+      if (res.g.pass) { noteActivity(); save(); }
+    },
+    onerror: (m) => { msg = m; },
+    onend: () => { busy = false; draw(); },
+  });
+  draw();
+}
+
+// ---------- speak tab ----------
+let sp = null;
+
+function renderSpeak(fresh) {
+  if (fresh || !sp) sp = { queue: shuffle(cardsOf(state.deck)), i: 0 };
+  const c = sp.queue[sp.i % sp.queue.length];
   view.innerHTML = `
-    <div class="meta"><span>Speaking · ${state.deck}</span><span>${sp.i + 1}/${sp.queue.length}</span></div>
+    <div class="meta"><span>Speaking · ${state.deck}</span><span>${(sp.i % sp.queue.length) + 1}/${sp.queue.length}</span></div>
     <section class="flash" style="min-height:190px">
       <div class="ru">${c.ru}</div>
       <div class="tr">${c.tr}</div>
       <div class="en">${c.en}</div>
       <button class="speak" id="say" aria-label="Listen">🔊</button>
     </section>
-    <button class="btn mic ${sp.busy ? 'rec' : ''}" id="mic" ${sp.busy ? 'disabled' : ''}>${sp.busy ? '🎤 Listening… speak now' : '🎤 Tap, then say it in Russian'}</button>
-    ${sp.msg ? `<p class="fb">${sp.msg}</p>` : ''}
-    ${result}
-    <button class="btn alt" id="nx">${r && r.g.pass ? 'Next word →' : 'Skip →'}</button>
+    <div class="mic-slot"></div>
+    <button class="btn alt" id="nx">Next word →</button>
     <p class="muted center" style="margin-top:12px">Needs internet and microphone permission.</p>`;
-
   $('#say').onclick = () => speak(c.ru);
-  $('#mic').onclick = () => startListening(c);
-  $('#nx').onclick = () => { sp.i++; sp.res = null; sp.msg = ''; renderSpeak(); };
-}
-
-function startListening(c) {
-  if (!SR) { sp.msg = '❌ This browser has no speech recognition. Open the app in Chrome.'; renderSpeak(); return; }
-  if ('speechSynthesis' in window) speechSynthesis.cancel();
-  const r = new SR();
-  recog = r;
-  r.lang = 'ru-RU';
-  r.interimResults = false;
-  r.continuous = false;
-  r.maxAlternatives = 5;
-  let got = false;
-
-  r.onresult = (e) => {
-    got = true;
-    const alts = Array.from(e.results[0]).map((a) => a.transcript);
-    const target = norm(c.ru);
-    const heard = alts.find((t) => norm(t) === target) || alts[0];
-    sp.res = { heard, g: grade(c.ru, heard) };
-    sp.msg = '';
-    if (sp.res.g.pass) { noteActivity(); save(); }
-  };
-  r.onerror = (e) => {
-    const m = {
-      'not-allowed': '🚫 Microphone blocked. Allow the microphone for this site (lock icon next to the address, or phone Settings → Apps → Chrome → Permissions).',
-      'service-not-allowed': '🚫 Microphone blocked. Allow it in your browser settings.',
-      'no-speech': "I didn't hear anything. Tap the button and speak right away.",
-      'audio-capture': '🎤 No microphone found.',
-      'network': '🌐 No internet. Speech checking needs a connection.',
-      'language-not-supported': '❌ Russian speech recognition is not available on this device.',
-    }[e.error];
-    sp.msg = m || 'Could not listen (' + e.error + '). Try again.';
-  };
-  r.onend = () => {
-    sp.busy = false;
-    if (!got && !sp.msg) sp.msg = "I didn't catch that. Try again.";
-    if ($('#mic')) renderSpeak();
-  };
-
-  sp.busy = true; sp.msg = ''; sp.res = null;
-  renderSpeak();
-  try { r.start(); } catch (e) { sp.busy = false; sp.msg = 'Could not start the microphone. Try again.'; renderSpeak(); }
+  mountMic(view.querySelector('.mic-slot'), c.ru, c.tr);
+  $('#nx').onclick = () => { delete micMemo[c.ru]; sp.i++; renderSpeak(); };
 }
 
 // ---------- start ----------

@@ -72,3 +72,6 @@ nav button.on{color:var(--accent);font-weight:700}
 .w.near{border-color:#f59e0b;background:rgba(245,158,11,.15)}
 .w.bad{border-color:var(--bad);background:rgba(220,38,38,.15)}
 .w.extra{border-style:dashed}
+.sheet-box{max-height:92vh;overflow:auto}
+.fbk{text-align:left}
+.mic-slot:empty{display:none}
