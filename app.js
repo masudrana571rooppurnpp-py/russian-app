@@ -113,6 +113,7 @@ function go(tab) {
   if (tab === 'home') renderHome();
   else if (tab === 'alphabet') renderAlphabet();
   else if (tab === 'study') renderStudy(true);
+  else if (tab === 'speak') renderSpeak(true);
   else renderQuizSetup();
 }
 
@@ -362,6 +363,143 @@ function renderQz() {
   });
   const next = $('#next');
   if (next) next.onclick = () => { qz.i++; qz.picked = null; renderQz(); };
+}
+
+// ---------- speaking practice ----------
+// <pure>
+const NUMW = { '0': 'ноль', '1': 'один', '2': 'два', '3': 'три', '4': 'четыре', '5': 'пять', '6': 'шесть', '7': 'семь', '8': 'восемь', '9': 'девять', '10': 'десять' };
+const norm = (s) => s.toLowerCase().replace(/ё/g, 'е').replace(/[^a-zа-я0-9\s]/g, ' ').replace(/\s+/g, ' ').trim()
+  .split(' ').map((w) => NUMW[w] || w).join(' ');
+
+function lev(a, b) {
+  const dp = Array.from({ length: a.length + 1 }, (_, i) => [i]);
+  for (let j = 1; j <= b.length; j++) dp[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+  }
+  return dp[a.length][b.length];
+}
+const sim = (a, b) => (a === b ? 1 : 1 - lev(a, b) / Math.max(a.length, b.length, 1));
+
+function alignWords(exp, got) {
+  const n = exp.length, m = got.length;
+  const D = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+  for (let i = 1; i <= n; i++) D[i][0] = i;
+  for (let j = 1; j <= m; j++) D[0][j] = j;
+  for (let i = 1; i <= n; i++) {
+    for (let j = 1; j <= m; j++) {
+      D[i][j] = Math.min(D[i - 1][j] + 1, D[i][j - 1] + 1, D[i - 1][j - 1] + 1 - sim(exp[i - 1], got[j - 1]));
+    }
+  }
+  const ops = [];
+  let i = n, j = m;
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && Math.abs(D[i][j] - (D[i - 1][j - 1] + 1 - sim(exp[i - 1], got[j - 1]))) < 1e-9) {
+      ops.push({ exp: exp[i - 1], got: got[j - 1], s: sim(exp[i - 1], got[j - 1]) }); i--; j--;
+    } else if (i > 0 && Math.abs(D[i][j] - (D[i - 1][j] + 1)) < 1e-9) {
+      ops.push({ exp: exp[i - 1], got: null, s: 0 }); i--;
+    } else {
+      ops.push({ exp: null, got: got[j - 1], s: 0 }); j--;
+    }
+  }
+  return ops.reverse();
+}
+
+function grade(target, heard) {
+  const exp = norm(target).split(' ').filter(Boolean);
+  const got = norm(heard).split(' ').filter(Boolean);
+  const ops = alignWords(exp, got);
+  const extras = ops.filter((o) => o.exp === null).length;
+  const sum = ops.reduce((t, o) => t + o.s, 0);
+  const score = Math.min(1, sum / (exp.length + 0.5 * extras));
+  return { ops, score, pass: score >= 0.8 };
+}
+// </pure>
+
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let sp = null;
+let recog = null;
+
+function renderSpeak(fresh) {
+  if (fresh || !sp) sp = { queue: shuffle(cardsOf(state.deck)), i: 0, busy: false, res: null, msg: '' };
+  const c = sp.queue[sp.i % sp.queue.length];
+  const w = (o) => {
+    if (o.exp === null) return `<span class="w extra"><small>extra word</small>${o.got}</span>`;
+    if (o.got === null) return `<span class="w bad">${o.exp}<small>missing</small></span>`;
+    if (o.s === 1) return `<span class="w ok">${o.exp}</span>`;
+    const cls = o.s >= 0.6 ? 'near' : 'bad';
+    return `<span class="w ${cls}">${o.exp}<small>you said: ${o.got}</small></span>`;
+  };
+  const r = sp.res;
+  const result = r ? `
+    <section class="card">
+      <h2>${r.g.pass ? (r.g.score >= 0.95 ? '🎉 Perfect!' : '👍 Good, almost there') : '🔁 Try again'} <span class="muted">${Math.round(r.g.score * 100)}%</span></h2>
+      <p class="muted">I heard: <b>${r.heard}</b></p>
+      <div class="words">${r.g.ops.map(w).join('')}</div>
+      ${r.g.pass ? '' : `<p class="muted" style="margin-top:10px">Tip: tap 🔊, listen carefully, then say it slowly. Sounds like: <b>${c.tr}</b></p>`}
+    </section>` : '';
+
+  view.innerHTML = `
+    <div class="meta"><span>Speaking · ${state.deck}</span><span>${sp.i + 1}/${sp.queue.length}</span></div>
+    <section class="flash" style="min-height:190px">
+      <div class="ru">${c.ru}</div>
+      <div class="tr">${c.tr}</div>
+      <div class="en">${c.en}</div>
+      <button class="speak" id="say" aria-label="Listen">🔊</button>
+    </section>
+    <button class="btn mic ${sp.busy ? 'rec' : ''}" id="mic" ${sp.busy ? 'disabled' : ''}>${sp.busy ? '🎤 Listening… speak now' : '🎤 Tap, then say it in Russian'}</button>
+    ${sp.msg ? `<p class="fb">${sp.msg}</p>` : ''}
+    ${result}
+    <button class="btn alt" id="nx">${r && r.g.pass ? 'Next word →' : 'Skip →'}</button>
+    <p class="muted center" style="margin-top:12px">Needs internet and microphone permission.</p>`;
+
+  $('#say').onclick = () => speak(c.ru);
+  $('#mic').onclick = () => startListening(c);
+  $('#nx').onclick = () => { sp.i++; sp.res = null; sp.msg = ''; renderSpeak(); };
+}
+
+function startListening(c) {
+  if (!SR) { sp.msg = '❌ This browser has no speech recognition. Open the app in Chrome.'; renderSpeak(); return; }
+  if ('speechSynthesis' in window) speechSynthesis.cancel();
+  const r = new SR();
+  recog = r;
+  r.lang = 'ru-RU';
+  r.interimResults = false;
+  r.continuous = false;
+  r.maxAlternatives = 5;
+  let got = false;
+
+  r.onresult = (e) => {
+    got = true;
+    const alts = Array.from(e.results[0]).map((a) => a.transcript);
+    const target = norm(c.ru);
+    const heard = alts.find((t) => norm(t) === target) || alts[0];
+    sp.res = { heard, g: grade(c.ru, heard) };
+    sp.msg = '';
+    if (sp.res.g.pass) { noteActivity(); save(); }
+  };
+  r.onerror = (e) => {
+    const m = {
+      'not-allowed': '🚫 Microphone blocked. Allow the microphone for this site (lock icon next to the address, or phone Settings → Apps → Chrome → Permissions).',
+      'service-not-allowed': '🚫 Microphone blocked. Allow it in your browser settings.',
+      'no-speech': "I didn't hear anything. Tap the button and speak right away.",
+      'audio-capture': '🎤 No microphone found.',
+      'network': '🌐 No internet. Speech checking needs a connection.',
+      'language-not-supported': '❌ Russian speech recognition is not available on this device.',
+    }[e.error];
+    sp.msg = m || 'Could not listen (' + e.error + '). Try again.';
+  };
+  r.onend = () => {
+    sp.busy = false;
+    if (!got && !sp.msg) sp.msg = "I didn't catch that. Try again.";
+    if ($('#mic')) renderSpeak();
+  };
+
+  sp.busy = true; sp.msg = ''; sp.res = null;
+  renderSpeak();
+  try { r.start(); } catch (e) { sp.busy = false; sp.msg = 'Could not start the microphone. Try again.'; renderSpeak(); }
 }
 
 // ---------- start ----------

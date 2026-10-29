@@ -62,3 +62,13 @@ nav button i{font-style:normal;font-size:20px;line-height:1.2}
 nav button.on{color:var(--accent);font-weight:700}
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .lnk{display:block;text-align:center;font-size:13px;color:var(--accent);margin:10px 0 0;text-decoration:underline}
+.btn.mic{font-size:18px;padding:18px}
+.btn.mic.rec{background:var(--bad);animation:pulse 1s infinite}
+@keyframes pulse{50%{opacity:.6}}
+.words{display:flex;flex-wrap:wrap;gap:8px}
+.w{display:inline-flex;flex-direction:column;padding:8px 12px;border-radius:10px;font-size:18px;font-weight:600;border:2px solid var(--line)}
+.w small{font-size:12px;font-weight:400;color:var(--muted)}
+.w.ok{border-color:var(--ok);background:rgba(22,163,74,.15)}
+.w.near{border-color:#f59e0b;background:rgba(245,158,11,.15)}
+.w.bad{border-color:var(--bad);background:rgba(220,38,38,.15)}
+.w.extra{border-style:dashed}

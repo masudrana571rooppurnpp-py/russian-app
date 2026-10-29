@@ -1,6 +1,6 @@
 // Service worker: makes the app work offline.
 // Network first (so updates show up), cache as a fallback when offline.
-const CACHE = 'russian-start-v2';
+const CACHE = 'russian-start-v3';
 const FILES = ['./', 'index.html', 'style.css', 'data.js', 'app.js', 'manifest.json', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', (e) => {
