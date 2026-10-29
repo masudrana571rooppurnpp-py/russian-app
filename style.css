@@ -60,3 +60,5 @@ nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--card);b
 nav button{flex:1;border:0;background:none;color:var(--muted);padding:8px 0;font-size:12px;display:flex;flex-direction:column;align-items:center;gap:2px}
 nav button i{font-style:normal;font-size:20px;line-height:1.2}
 nav button.on{color:var(--accent);font-weight:700}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.lnk{display:block;text-align:center;font-size:13px;color:var(--accent);margin:10px 0 0;text-decoration:underline}

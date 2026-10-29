@@ -40,17 +40,41 @@ function toast(msg) {
   toastTimer = setTimeout(() => { t.hidden = true; }, 3500);
 }
 
+let VOICES = [];
+function loadVoices() { if ('speechSynthesis' in window) VOICES = speechSynthesis.getVoices() || []; }
+loadVoices();
+if ('speechSynthesis' in window) speechSynthesis.onvoiceschanged = loadVoices;
+const ruVoice = () => VOICES.find((x) => x.lang && x.lang.toLowerCase().replace('_', '-').startsWith('ru'));
+const transLink = (text) => 'https://translate.google.com/?sl=ru&tl=en&op=translate&text=' + encodeURIComponent(text);
+
 function speak(text) {
-  if (!('speechSynthesis' in window)) { toast('Speech is not supported in this browser.'); return; }
-  const voices = speechSynthesis.getVoices();
-  const v = voices.find((x) => x.lang && x.lang.toLowerCase().startsWith('ru'));
-  if (voices.length && !v) toast("No Russian voice found. Install one in your phone's text-to-speech settings.");
+  if (!('speechSynthesis' in window)) { toast('This browser has no speech. Use the Google Translate link instead.'); return; }
+  loadVoices();
+  const v = ruVoice();
+  if (VOICES.length && !v) toast('No Russian voice installed. See "Sound help" on the Home tab.');
   const u = new SpeechSynthesisUtterance(text);
   u.lang = 'ru-RU';
   u.rate = 0.8;
+  u.volume = 1;
   if (v) u.voice = v;
-  speechSynthesis.cancel();
+  u.onerror = (e) => toast('Sound error (' + ((e && e.error) || 'unknown') + '). See "Sound help" on the Home tab.');
+  if (speechSynthesis.speaking || speechSynthesis.pending) speechSynthesis.cancel();
   speechSynthesis.speak(u);
+  if (speechSynthesis.paused) speechSynthesis.resume();
+}
+
+function soundCheck() {
+  const out = $('#sc-out');
+  loadVoices();
+  const n = VOICES.length;
+  const v = ruVoice();
+  let msg;
+  if (!('speechSynthesis' in window)) msg = '❌ This browser cannot speak. Try Chrome.';
+  else if (!n) msg = '⚠️ No voices found yet. Tap again in a few seconds. If still 0, install "Speech Services by Google".';
+  else if (!v) msg = '❌ ' + n + ' voices found, but none is Russian. Install Russian voice data (steps below).';
+  else msg = '✅ Russian voice found: ' + v.name + '. If you hear nothing, raise the media volume.';
+  if (out) out.textContent = msg;
+  speak('Привет! Как дела?');
 }
 
 // ---------- spaced repetition ----------
@@ -121,6 +145,12 @@ function renderHome() {
       <button class="btn" id="go-study">Start studying</button>
     </section>
     <section class="card tip">
+      <h2>🔊 Sound help</h2>
+      <button class="btn alt" id="sc-test">Test the sound</button>
+      <p id="sc-out" style="margin-top:10px"></p>
+      <p style="margin-top:10px">No Russian voice? On Android: Settings → search "Text-to-speech output" → choose <b>Speech Services by Google</b> → ⚙ → <b>Install voice data</b> → <b>Russian</b>. Also raise the media volume. Then restart this app.</p>
+    </section>
+    <section class="card tip">
       <h2>How to learn</h2>
       <p>1) Learn the alphabet first (Alphabet tab). 2) Study about 10 new words a day with the flashcards. 3) Take a quiz. Come back every day: the app brings old words back just before you forget them.</p>
     </section>
@@ -130,6 +160,7 @@ function renderHome() {
     b.onclick = () => { state.deck = b.dataset.deck; save(); renderHome(); };
   });
   $('#go-study').onclick = () => go('study');
+  $('#sc-test').onclick = soundCheck;
   $('#reset').onclick = () => {
     if (confirm('Erase all progress?')) {
       state.cards = {}; state.streak = 0; state.lastDay = null; state.reviewed = { day: null, n: 0 };
@@ -147,7 +178,7 @@ function renderAlphabet() {
       ${ALPHABET.map((a, i) => `<button class="tile" data-i="${i}"><span class="big">${a[0]}</span><span class="tr">${a[1]}</span></button>`).join('')}
     </div>
     <button class="btn" id="aq">Practise the alphabet</button>`;
-  view.querySelectorAll('.tile').forEach((b) => { b.onclick = () => showLetter(+b.dataset.i); });
+  view.querySelectorAll('.tile').forEach((b) => { b.onclick = () => { showLetter(+b.dataset.i); speak(ALPHABET[+b.dataset.i][3]); }; });
   $('#aq').onclick = () => startQz(buildAlphaQuiz, 'alphabet', 'alpha');
 }
 
@@ -162,12 +193,17 @@ function showLetter(i) {
       <div class="big2">${a[0]}</div>
       <p><b>${a[1]}</b>: ${a[2]}</p>
       <p>Example: <b>${a[3]}</b> (${a[4]}) = ${a[5]}</p>
-      <button class="btn" id="sw">🔊 Hear the word</button>
+      <div class="row2">
+        <button class="btn" id="sl">🔊 Letter</button>
+        <button class="btn" id="sw">🔊 Word</button>
+      </div>
+      <a class="lnk" target="_blank" rel="noopener" href="${transLink(a[3])}">No sound? Listen on Google Translate</a>
       <button class="btn alt" id="sc">Close</button>
     </div>`;
   sh.querySelector('.sheet-bg').onclick = close;
   $('#sc').onclick = close;
   $('#sw').onclick = () => speak(a[3]);
+  $('#sl').onclick = () => speak(a[0].charAt(0));
 }
 
 // ---------- flashcards ----------
@@ -202,6 +238,7 @@ function renderStudy(fresh) {
       ${s.shown ? `<div class="tr">${c.tr}</div><div class="en">${c.en}</div>` : '<div class="muted">Tap to reveal</div>'}
       <button class="speak" id="say" aria-label="Listen">🔊</button>
     </section>
+    <a class="lnk" target="_blank" rel="noopener" href="${transLink(c.ru)}">No sound? Listen on Google Translate</a>
     ${s.shown
       ? '<div class="rate"><button class="r0" data-r="0">Again</button><button class="r1" data-r="1">Good</button><button class="r2" data-r="2">Easy</button></div>'
       : '<button class="btn" id="show">Show answer</button>'}`;
@@ -329,7 +366,6 @@ function renderQz() {
 
 // ---------- start ----------
 document.querySelectorAll('#nav button').forEach((b) => { b.onclick = () => go(b.dataset.tab); });
-if ('speechSynthesis' in window) speechSynthesis.getVoices(); // warm up the voice list
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
 }
