@@ -161,3 +161,128 @@ const DECKS = {
     ["чёрный", "chorny", "black"],
   ],
 };
+
+// ---------- Day-by-day lessons (built from the decks, about 10 words per day) ----------
+const DAYS = [];
+for (const [deck, list] of Object.entries(DECKS)) {
+  const parts = Math.ceil(list.length / 10);
+  const size = Math.ceil(list.length / parts);
+  for (let p = 0; p < parts; p++) {
+    DAYS.push({ deck, title: deck + (parts > 1 ? ` (${p + 1}/${parts})` : ''), cards: list.slice(p * size, (p + 1) * size) });
+  }
+}
+
+// ---------- Conversations ----------
+// Each line: [who, Russian, how it sounds, English]   who: "P" = the professional, "Y" = you
+const SCENARIOS = [
+  {
+    id: "doctor", emoji: "🩺", title: "At the doctor", who: "Doctor", whoRu: "Врач", youLabel: "Patient",
+    intro: "You do not feel well, so you visit the clinic.",
+    keys: [["болит", "boleet", "hurts"], ["голова", "galava", "head"], ["вода", "vada", "water"], ["отдыхайте", "atdykhayte", "rest"]],
+    lines: [
+      ["P", "Здравствуйте! Как вы себя чувствуете?", "zdrastvooyte kak vy syebya choostvooyete", "Hello! How do you feel?"],
+      ["Y", "Здравствуйте, доктор. Мне плохо.", "zdrastvooyte doktar mnye plokha", "Hello, doctor. I feel bad."],
+      ["P", "Что у вас болит?", "shto oo vas boleet", "What hurts?"],
+      ["Y", "У меня болит голова.", "oo meenya boleet galava", "I have a headache."],
+      ["P", "Это давно?", "eto davno", "Has it been long?"],
+      ["Y", "Нет, только сегодня.", "nyet tolka sivodnya", "No, only today."],
+      ["P", "Пейте воду и отдыхайте.", "pyete vodoo ee atdykhayte", "Drink water and rest."],
+      ["Y", "Хорошо, спасибо большое.", "kharasho spaseeba balshoye", "OK, thank you very much."],
+      ["P", "Пожалуйста. До свидания!", "pazhalusta da sveedaniya", "You are welcome. Goodbye!"],
+    ],
+  },
+  {
+    id: "teacher", emoji: "📚", title: "At school", who: "Teacher", whoRu: "Учитель", youLabel: "Student",
+    intro: "You arrive at your Russian class in the morning.",
+    keys: [["книга", "kneega", "book"], ["вопрос", "vapros", "question"], ["повторите", "pavtareetye", "repeat (please)"], ["понимаю", "paneemayu", "I understand"]],
+    lines: [
+      ["P", "Доброе утро! Как дела?", "dobraye ootra kak deela", "Good morning! How are you?"],
+      ["Y", "Доброе утро! Хорошо, спасибо. А у вас?", "dobraye ootra kharasho spaseeba a oo vas", "Good morning! Fine, thanks. And you?"],
+      ["P", "Тоже хорошо. Вы понимаете по-русски?", "tozhe kharasho vy paneemayete pa rooskee", "Also good. Do you understand Russian?"],
+      ["Y", "Я понимаю немного.", "ya paneemayu nyemnoga", "I understand a little."],
+      ["P", "Отлично! Откройте книгу, пожалуйста.", "atleechna atkroyte kneegoo pazhalusta", "Excellent! Open the book, please."],
+      ["Y", "Хорошо. Можно вопрос?", "kharasho mozhna vapros", "OK. May I ask a question?"],
+      ["P", "Конечно.", "kanyeshna", "Of course."],
+      ["Y", "Повторите, пожалуйста.", "pavtareetye pazhalusta", "Please repeat."],
+      ["P", "Хорошо. Слушайте внимательно.", "kharasho slooshayte vneemateelna", "OK. Listen carefully."],
+    ],
+  },
+  {
+    id: "cafe", emoji: "☕", title: "At a café", who: "Waiter", whoRu: "Официант", youLabel: "Customer",
+    intro: "You order tea and bread in a café.",
+    keys: [["чай", "chay", "tea"], ["хлеб", "khlyeb", "bread"], ["сколько стоит", "skolka stoeet", "how much is it"], ["рублей", "rooblyey", "rubles"]],
+    lines: [
+      ["P", "Добрый день! Что вы хотите?", "dobry dyen shto vy khateete", "Good afternoon! What would you like?"],
+      ["Y", "Здравствуйте. Чай и хлеб, пожалуйста.", "zdrastvooyte chay ee khlyeb pazhalusta", "Hello. Tea and bread, please."],
+      ["P", "С сахаром?", "s sakharam", "With sugar?"],
+      ["Y", "Да, пожалуйста.", "da pazhalusta", "Yes, please."],
+      ["P", "Ещё что-нибудь?", "yeshcho shto neeboot", "Anything else?"],
+      ["Y", "Нет, спасибо. Сколько стоит?", "nyet spaseeba skolka stoeet", "No, thank you. How much is it?"],
+      ["P", "Двести рублей.", "dvyestee rooblyey", "Two hundred rubles."],
+      ["Y", "Вот, пожалуйста.", "vot pazhalusta", "Here you are."],
+      ["P", "Спасибо! Приятного аппетита!", "spaseeba preeyatnava appeteeta", "Thank you! Enjoy your meal!"],
+    ],
+  },
+  {
+    id: "taxi", emoji: "🚕", title: "In a taxi", who: "Taxi driver", whoRu: "Таксист", youLabel: "Passenger",
+    intro: "You take a taxi to the airport.",
+    keys: [["куда", "kooda", "where to"], ["аэропорт", "aeraport", "airport"], ["далеко", "dalyeko", "far"], ["быстрее", "bystryeye", "faster"]],
+    lines: [
+      ["P", "Добрый вечер! Куда едем?", "dobry vyecher kooda yedyem", "Good evening! Where are we going?"],
+      ["Y", "В аэропорт, пожалуйста.", "v aeraport pazhalusta", "To the airport, please."],
+      ["P", "Хорошо. Это далеко.", "kharasho eto dalyeko", "OK. It is far."],
+      ["Y", "Сколько это стоит?", "skolka eto stoeet", "How much does it cost?"],
+      ["P", "Тысяча рублей.", "tysyacha rooblyey", "One thousand rubles."],
+      ["Y", "Хорошо. Быстрее, пожалуйста.", "kharasho bystryeye pazhalusta", "OK. Faster, please."],
+      ["P", "Мы приехали.", "my preeyekhalee", "We have arrived."],
+      ["Y", "Спасибо! До свидания!", "spaseeba da sveedaniya", "Thank you! Goodbye!"],
+    ],
+  },
+  {
+    id: "shop", emoji: "🛒", title: "At the shop", who: "Shop assistant", whoRu: "Продавец", youLabel: "Customer",
+    intro: "You buy milk, bread and cheese.",
+    keys: [["молоко", "malako", "milk"], ["сыр", "syr", "cheese"], ["нужно", "noozhna", "need"], ["всего доброго", "vsyevo dobrava", "all the best"]],
+    lines: [
+      ["P", "Здравствуйте! Чем могу помочь?", "zdrastvooyte chyem magoo pamoch", "Hello! How can I help?"],
+      ["Y", "Здравствуйте. У вас есть молоко?", "zdrastvooyte oo vas yest malako", "Hello. Do you have milk?"],
+      ["P", "Да, есть. Сколько вам нужно?", "da yest skolka vam noozhna", "Yes. How much do you need?"],
+      ["Y", "Одну бутылку, пожалуйста.", "adnoo bootylkoo pazhalusta", "One bottle, please."],
+      ["P", "Что-нибудь ещё?", "shto neeboot yeshcho", "Anything else?"],
+      ["Y", "Да, хлеб и сыр.", "da khlyeb ee syr", "Yes, bread and cheese."],
+      ["P", "Сто пятьдесят рублей.", "sto pyatdyesyat rooblyey", "One hundred fifty rubles."],
+      ["Y", "Пожалуйста. Спасибо!", "pazhalusta spaseeba", "Here you go. Thanks!"],
+      ["P", "Всего доброго!", "vsyevo dobrava", "All the best!"],
+    ],
+  },
+  {
+    id: "hotel", emoji: "🏨", title: "At the hotel", who: "Receptionist", whoRu: "Администратор", youLabel: "Guest",
+    intro: "You arrive at a hotel and check in.",
+    keys: [["номер", "nomyer", "room"], ["паспорт", "pasport", "passport"], ["лифт", "leeft", "elevator"], ["налево", "nalyeva", "to the left"]],
+    lines: [
+      ["P", "Добрый день! Чем могу помочь?", "dobry dyen chyem magoo pamoch", "Good afternoon! How can I help?"],
+      ["Y", "Здравствуйте. У меня есть бронь.", "zdrastvooyte oo meenya yest bron", "Hello. I have a reservation."],
+      ["P", "Ваш паспорт, пожалуйста.", "vash pasport pazhalusta", "Your passport, please."],
+      ["Y", "Вот, пожалуйста.", "vot pazhalusta", "Here you are."],
+      ["P", "Ваш номер двести пять.", "vash nomyer dvyestee pyat", "Your room is two hundred five."],
+      ["Y", "Спасибо. Где лифт?", "spaseeba gdye leeft", "Thank you. Where is the elevator?"],
+      ["P", "Налево, рядом с окном.", "nalyeva ryadam s aknom", "On the left, next to the window."],
+      ["Y", "Хорошо. Спасибо большое.", "kharasho spaseeba balshoye", "OK. Thank you very much."],
+      ["P", "Приятного отдыха!", "preeyatnava atdykha", "Enjoy your stay!"],
+    ],
+  },
+  {
+    id: "work", emoji: "💼", title: "At work", who: "Manager", whoRu: "Начальник", youLabel: "Employee",
+    intro: "Your manager gives you a task at the office.",
+    keys: [["работа", "rabota", "work"], ["отчёт", "atchyot", "report"], ["когда", "kagda", "when"], ["пятница", "pyatneetsa", "Friday"]],
+    lines: [
+      ["P", "Доброе утро! Как ваши дела?", "dobraye ootra kak vashee deela", "Good morning! How are things?"],
+      ["Y", "Хорошо, спасибо. Как у вас?", "kharasho spaseeba kak oo vas", "Fine, thanks. And with you?"],
+      ["P", "Всё хорошо. Нам нужно сделать отчёт.", "vsyo kharasho nam noozhna zdyelat atchyot", "All good. We need to make a report."],
+      ["Y", "Хорошо. Когда нужно?", "kharasho kagda noozhna", "OK. When is it needed?"],
+      ["P", "До пятницы.", "da pyatneetsy", "By Friday."],
+      ["Y", "Хорошо, я понимаю.", "kharasho ya paneemayu", "OK, I understand."],
+      ["P", "Спасибо. Удачи!", "spaseeba oodachee", "Thank you. Good luck!"],
+      ["Y", "Спасибо! До свидания!", "spaseeba da sveedaniya", "Thanks! Goodbye!"],
+    ],
+  },
+];
