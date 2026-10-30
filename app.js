@@ -6,9 +6,22 @@ const KEY = 'russian-start-v1';
 const INTERVALS = [0, 1, 3, 7, 14, 30, 60]; // days until next review, by "box"
 
 // ---------- saved progress (stays on your phone) ----------
-let state = { cards: {}, streak: 0, lastDay: null, reviewed: { day: null, n: 0 }, day: 0, progress: {}, convBest: {}, hints: true };
-try { Object.assign(state, JSON.parse(localStorage.getItem(KEY)) || {}); } catch (e) {}
-if (!(state.day >= 0 && state.day < DAYS.length)) state.day = 0;
+let saved = {};
+try { saved = JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) {}
+let state = Object.assign({ cards: {}, streak: 0, lastDay: null, reviewed: { day: null, n: 0 }, level: 'beginner', lv: {}, convBest: {}, hints: true }, saved);
+if (!state.lv || typeof state.lv !== 'object') state.lv = {};
+// progress saved by older versions belongs to the Beginner level
+if (saved.progress && !saved.lv) state.lv.beginner = { day: saved.day || 0, progress: saved.progress };
+delete state.day; delete state.progress; delete state.deck;
+if (!LEVELS.some((l) => l.id === state.level)) state.level = 'beginner';
+for (const l of LEVELS) {
+  const r = (state.lv[l.id] = state.lv[l.id] || {});
+  if (!(r.day >= 0 && r.day < l.days.length)) r.day = 0;
+  if (!r.progress || typeof r.progress !== 'object') r.progress = {};
+}
+// state.day and state.progress always point at the current level
+Object.defineProperty(state, 'day', { get() { return state.lv[state.level].day; }, set(v) { state.lv[state.level].day = v; } });
+Object.defineProperty(state, 'progress', { get() { return state.lv[state.level].progress; }, set(v) { state.lv[state.level].progress = v; } });
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} };
 
 // ---------- helpers ----------
@@ -26,7 +39,24 @@ const shuffle = (arr) => {
 };
 
 const ALL = [];
-DAYS.forEach((d, di) => d.cards.forEach(([ru, tr, en]) => ALL.push({ id: ru, ru, tr, en, deck: d.deck, day: di })));
+let LDAYS = [];
+let LSCEN = [];
+const curLevel = () => LEVELS.find((l) => l.id === state.level);
+function applyLevel() {
+  const L = curLevel();
+  LDAYS = L.days;
+  LSCEN = L.scenarios;
+  ALL.length = 0;
+  LDAYS.forEach((d, di) => d.cards.forEach(([ru, tr, en]) => ALL.push({ id: ru, ru, tr, en, deck: d.deck, day: di })));
+}
+applyLevel();
+function setLevel(id) {
+  state.level = id;
+  save();
+  applyLevel();
+  session = null; sp = null;
+  renderHome();
+}
 const dayCards = (di) => ALL.filter((c) => c.day === di);
 const prog = (d) => {
   const p = (state.progress[d] = state.progress[d] || {});
@@ -286,14 +316,14 @@ function mountMic(slot, target, tr, label, onResult) {
 
 // ---------- day navigation ----------
 function dayBarHtml() {
-  const d = DAYS[state.day];
+  const d = LDAYS[state.day];
   return `<div class="daybar">
     <button id="dprev" aria-label="Previous day" ${state.day === 0 ? 'disabled' : ''}>◀</button>
-    <button id="dpick"><b>Day ${state.day + 1}</b> of ${DAYS.length}<small>${d.title}</small></button>
-    <button id="dnext" aria-label="Next day" ${state.day === DAYS.length - 1 ? 'disabled' : ''}>▶</button>
+    <button id="dpick"><b>Day ${state.day + 1}</b> of ${LDAYS.length}<small>${curLevel().emoji} ${curLevel().name} · ${d.title}</small></button>
+    <button id="dnext" aria-label="Next day" ${state.day === LDAYS.length - 1 ? 'disabled' : ''}>▶</button>
   </div>`;
 }
-function setDay(n) { state.day = Math.max(0, Math.min(DAYS.length - 1, n)); save(); }
+function setDay(n) { state.day = Math.max(0, Math.min(LDAYS.length - 1, n)); save(); }
 function bindDayBar(rerender) {
   $('#dprev').onclick = () => { setDay(state.day - 1); rerender(); };
   $('#dnext').onclick = () => { setDay(state.day + 1); rerender(); };
@@ -308,7 +338,7 @@ function pickDay(rerender) {
     <div class="sheet-box">
       <h2>Choose a day</h2>
       <div class="daylist">
-        ${DAYS.map((d, i) => {
+        ${LDAYS.map((d, i) => {
           const p = state.progress[i] || {};
           const badges = [p.study ? '📖' : '', p.quizOf ? `✅ ${p.quiz}/${p.quizOf}` : '', p.spoke && p.spoke.length ? `🎤 ${p.spoke.length}/${d.cards.length}` : ''].filter(Boolean).join('  ');
           return `<button class="dayrow ${i === state.day ? 'on' : ''}" data-d="${i}"><span><b>Day ${i + 1}</b> · ${d.title}</span><small>${badges}</small></button>`;
@@ -346,9 +376,14 @@ function renderHome() {
   const known = Object.values(state.cards).filter((s) => s.box >= 3).length;
   const due = ALL.filter((c) => state.cards[c.id] && state.cards[c.id].due <= t).length;
   const today = state.reviewed.day === t ? state.reviewed.n : 0;
-  const d = DAYS[state.day];
+  const d = LDAYS[state.day];
   const p = prog(state.day);
   const studied = Object.keys(state.progress).filter((k) => state.progress[k].study).length;
+  const lvl = curLevel();
+  const levelCards = LEVELS.map((l) => {
+    const n = Object.values(state.lv[l.id].progress).filter((p) => p.study).length;
+    return `<button class="lvl ${l.id === state.level ? 'on' : ''}" data-lv="${l.id}"><span class="lemo">${l.emoji}</span><b>${l.name}</b><small>${n}/${l.days.length} days</small></button>`;
+  }).join('');
 
   view.innerHTML = `
     <section class="stats">
@@ -356,8 +391,10 @@ function renderHome() {
       <div><b>${today}</b><span>reviews today</span></div>
       <div><b>${due}</b><span>due now</span></div>
     </section>
+    <section class="levels">${levelCards}</section>
     <section class="card">
-      <h2>Your lesson</h2>
+      <h2>${lvl.emoji} ${lvl.name} level</h2>
+      <p class="muted" style="margin-bottom:6px">${lvl.sub}</p>
       ${dayBarHtml()}
       <p class="muted" style="margin:10px 0 4px">${d.cards.slice(0, 6).map((c) => c[0]).join(' · ')}${d.cards.length > 6 ? ' …' : ''}</p>
       <p class="muted">${p.study ? '📖 studied' : '📖 not studied yet'} · ${p.quizOf ? '✅ quiz ' + p.quiz + '/' + p.quizOf : '✅ no quiz yet'} · 🎤 ${p.spoke.length}/${d.cards.length}</p>
@@ -372,7 +409,7 @@ function renderHome() {
     <section class="card">
       <h2>Your progress</h2>
       <div class="bar"><i style="width:${Math.round((known / ALL.length) * 100)}%"></i></div>
-      <p class="muted">${studied}/${DAYS.length} days studied · ${known} well known · ${seen} started · ${ALL.length} words in total</p>
+      <p class="muted">${studied}/${LDAYS.length} days studied · ${known} well known · ${seen} started · ${ALL.length} words in total</p>
     </section>
     <section class="card tip">
       <h2>🔊 Sound help</h2>
@@ -382,11 +419,12 @@ function renderHome() {
     </section>
     <section class="card tip">
       <h2>How to learn</h2>
-      <p>1) Learn the alphabet first (Alphabet tab). 2) Each day: Study the words, take the Quiz, then Speak them aloud with 🎤. 3) Use the ◀ ▶ buttons to move between days. 4) Practise real situations in the Talk tab. Come back every day: the app brings old words back just before you forget them.</p>
+      <p>1) Choose your level above: Beginner, Mid (daily life and engineering basics) or Professional (electrical and power engineering). New to Russian? Start with Beginner and the Alphabet tab. 2) Each day: Study the words, take the Quiz, then Speak them aloud with 🎤. 3) Use the ◀ ▶ buttons to move between days. 4) Practise real situations in the Talk tab. Come back every day: the app brings old words back just before you forget them.</p>
     </section>
     <button class="btn small" id="reset">Reset my progress</button>`;
 
   bindDayBar(renderHome);
+  view.querySelectorAll('[data-lv]').forEach((b) => { b.onclick = () => setLevel(b.dataset.lv); });
   view.querySelectorAll('[data-go]').forEach((b) => { b.onclick = () => go(b.dataset.go); });
   const dueBtn = $('#due');
   if (dueBtn) dueBtn.onclick = () => go('study', 'due');
@@ -394,7 +432,8 @@ function renderHome() {
   $('#reset').onclick = () => {
     if (confirm('Erase all progress?')) {
       state.cards = {}; state.streak = 0; state.lastDay = null; state.reviewed = { day: null, n: 0 };
-      state.day = 0; state.progress = {}; state.convBest = {};
+      for (const l of LEVELS) state.lv[l.id] = { day: 0, progress: {} };
+      state.convBest = {};
       save(); renderHome();
     }
   };
@@ -459,7 +498,7 @@ function renderStudy(fresh, mode) {
 
   if (!s.queue.length) {
     if (s.total && s.mode !== 'due') { prog(s.day).study = true; save(); }
-    const last = state.day === DAYS.length - 1;
+    const last = state.day === LDAYS.length - 1;
     const title = s.total ? '🎉 Lesson complete' : s.mode === 'due' ? 'No words are due' : 'Nothing is due in this day';
     const text = s.total ? `You reviewed ${s.done} card${s.done === 1 ? '' : 's'}. Great work!` : s.mode === 'due' ? 'Come back later, or study the next day.' : 'You already know these words for now. Practise again, or move on.';
     view.innerHTML = `
@@ -617,7 +656,7 @@ function renderQz() {
         <button class="btn" id="qa">Try again</button>
         ${isVocab ? `<div class="row2">
           <button class="btn alt" id="qp" ${state.day === 0 ? 'disabled' : ''}>◀ Previous day</button>
-          <button class="btn alt" id="qn" ${state.day === DAYS.length - 1 ? 'disabled' : ''}>Next day ▶</button>
+          <button class="btn alt" id="qn" ${state.day === LDAYS.length - 1 ? 'disabled' : ''}>Next day ▶</button>
         </div>` : ''}
         <button class="btn alt" id="qb">Back</button>
       </section>`;
@@ -673,7 +712,7 @@ function renderSpeak(fresh) {
   const c = list[sp.i];
   const p = prog(state.day);
   const lastWord = sp.i === list.length - 1;
-  const lastDay = state.day === DAYS.length - 1;
+  const lastDay = state.day === LDAYS.length - 1;
   view.innerHTML = `
     ${dayBarHtml()}
     <div class="meta"><span>Word ${sp.i + 1}/${list.length}</span><span id="spk">🎤 ${p.spoke.length}/${list.length} passed</span></div>
@@ -716,7 +755,7 @@ function renderTalk() {
   view.innerHTML = `
     <h2>Conversations</h2>
     <p class="muted">A professional talks to you in Russian and you answer with your voice. You can also swap roles and play the professional.</p>
-    ${SCENARIOS.map((s, i) => `
+    ${LSCEN.map((s, i) => `
       <button class="card sc" data-i="${i}">
         <span class="emo">${s.emoji}</span>
         <span class="scx"><b>${s.title}</b><small>${s.who} · ${s.lines.length} lines${state.convBest[s.id] ? ' · best ' + state.convBest[s.id] + '%' : ''}</small></span>
@@ -725,7 +764,7 @@ function renderTalk() {
 }
 
 function renderConvIntro(i, role) {
-  const s = SCENARIOS[i];
+  const s = LSCEN[i];
   cs = { si: i, role: role || (cs && cs.si === i ? cs.role : 'Y') };
   view.innerHTML = `
     <button class="btn small" id="cb">◀ All conversations</button>
@@ -750,7 +789,7 @@ function renderConvIntro(i, role) {
 }
 
 function startConv(i, role) {
-  const sc = SCENARIOS[i];
+  const sc = LSCEN[i];
   conv = { sc, role, i: 0, log: [], scores: [], lineBest: 0, revealed: false, skipped: 0 };
   micMemo = {};
   convAdvance();
@@ -799,8 +838,8 @@ function renderConv(say) {
         <button class="btn alt" id="swap">Swap roles and play again</button>
         <button class="btn alt" id="all">Choose another conversation</button>
       </section>`;
-    $('#again').onclick = () => startConv(SCENARIOS.indexOf(sc), conv.role);
-    $('#swap').onclick = () => startConv(SCENARIOS.indexOf(sc), conv.role === 'Y' ? 'P' : 'Y');
+    $('#again').onclick = () => startConv(LSCEN.indexOf(sc), conv.role);
+    $('#swap').onclick = () => startConv(LSCEN.indexOf(sc), conv.role === 'Y' ? 'P' : 'Y');
     $('#all').onclick = renderTalk;
     view.querySelectorAll('.bsay').forEach((b) => { b.onclick = () => speak(conv.log[+b.dataset.i][1], 0.85); });
     return;
