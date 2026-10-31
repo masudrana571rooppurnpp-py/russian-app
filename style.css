@@ -113,3 +113,15 @@ nav button.on{color:var(--accent);font-weight:700}
 .lvl.on{border-color:var(--btn);background:var(--accent2)}
 .lvl .lemo{font-size:26px}
 .lvl small{color:var(--muted);font-size:12px}
+.speed{display:flex;align-items:center;gap:8px;margin:6px 0 2px;font-size:14px;color:var(--muted)}
+.speed input{flex:1;min-width:0;accent-color:var(--btn)}
+.speed .rv{min-width:38px;text-align:right;color:var(--ink);font-size:13px}
+.sheet-box .speed{margin:10px 0 0}
+.pct{text-align:center}
+.bigpct{font-size:44px;font-weight:800;line-height:1.1}
+.pct.good .bigpct{color:var(--ok)}
+.pct.mid .bigpct{color:#d97706}
+.pct.low .bigpct{color:var(--bad)}
+.pct.good .bar i{background:var(--ok)}
+.pct.mid .bar i{background:#f59e0b}
+.pct.low .bar i{background:var(--bad)}

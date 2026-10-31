@@ -8,7 +8,8 @@ const INTERVALS = [0, 1, 3, 7, 14, 30, 60]; // days until next review, by "box"
 // ---------- saved progress (stays on your phone) ----------
 let saved = {};
 try { saved = JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) {}
-let state = Object.assign({ cards: {}, streak: 0, lastDay: null, reviewed: { day: null, n: 0 }, level: 'beginner', lv: {}, convBest: {}, hints: true }, saved);
+let state = Object.assign({ cards: {}, streak: 0, lastDay: null, reviewed: { day: null, n: 0 }, level: 'beginner', lv: {}, convBest: {}, hints: true, rate: 0.8 }, saved);
+if (!(state.rate >= 0.4 && state.rate <= 1.2)) state.rate = 0.8;
 if (!state.lv || typeof state.lv !== 'object') state.lv = {};
 // progress saved by older versions belongs to the Beginner level
 if (saved.progress && !saved.lv) state.lv.beginner = { day: saved.day || 0, progress: saved.progress };
@@ -83,20 +84,57 @@ if ('speechSynthesis' in window) speechSynthesis.onvoiceschanged = loadVoices;
 const ruVoice = () => VOICES.find((x) => x.lang && x.lang.toLowerCase().replace('_', '-').startsWith('ru'));
 const transLink = (text) => 'https://translate.google.com/?sl=ru&tl=en&op=translate&text=' + encodeURIComponent(text);
 
-function speak(text, rate) {
+function speak(text) {
   if (!('speechSynthesis' in window)) { toast('This browser has no speech. Use the Google Translate link instead.'); return; }
   loadVoices();
   const v = ruVoice();
   if (VOICES.length && !v) toast('No Russian voice installed. See "Sound help" on the Home tab.');
   const u = new SpeechSynthesisUtterance(text);
   u.lang = 'ru-RU';
-  u.rate = rate || 0.8;
+  u.rate = state.rate;
   u.volume = 1;
   if (v) u.voice = v;
   u.onerror = (e) => toast('Sound error (' + ((e && e.error) || 'unknown') + '). See "Sound help" on the Home tab.');
   if (speechSynthesis.speaking || speechSynthesis.pending) speechSynthesis.cancel();
   speechSynthesis.speak(u);
   if (speechSynthesis.paused) speechSynthesis.resume();
+}
+
+// Speaks several pieces one after another, each in its own language.
+function speakSeq(parts) {
+  if (!('speechSynthesis' in window)) return;
+  loadVoices();
+  if (speechSynthesis.speaking || speechSynthesis.pending) speechSynthesis.cancel();
+  parts.forEach((p) => {
+    const u = new SpeechSynthesisUtterance(p.text);
+    u.lang = p.lang;
+    u.rate = state.rate;
+    u.volume = 1;
+    const v = p.lang === 'ru-RU' ? ruVoice() : VOICES.find((x) => x.lang && x.lang.toLowerCase().replace('_', '-').startsWith('en'));
+    if (v) u.voice = v;
+    speechSynthesis.speak(u);
+  });
+  if (speechSynthesis.paused) speechSynthesis.resume();
+}
+
+// The spoken feedback: "Correct", or "Say, please" followed by the right sentence.
+function speakFeedback(res, target) {
+  if (res.g.pass) speakSeq([{ text: 'Correct', lang: 'en-US' }]);
+  else speakSeq([{ text: 'Say, please:', lang: 'en-US' }, { text: target, lang: 'ru-RU' }]);
+}
+
+// ---------- voice speed control (one setting, shown wherever voice is used) ----------
+const speedHtml = () => `<div class="speed"><span>🐢</span><input type="range" min="0.4" max="1.2" step="0.1" value="${state.rate}" aria-label="Voice speed"><span>🐇</span><b class="rv">${state.rate.toFixed(1)}×</b></div>`;
+function syncSpeed() {
+  document.querySelectorAll('.speed').forEach((el) => {
+    el.querySelector('input').value = state.rate;
+    el.querySelector('.rv').textContent = state.rate.toFixed(1) + '×';
+  });
+}
+function bindSpeed(el) {
+  const r = el.querySelector('input');
+  r.oninput = () => { state.rate = Math.round(+r.value * 10) / 10; syncSpeed(); };
+  r.onchange = () => { save(); speak('Привет! Как дела?'); };
 }
 
 function soundCheck() {
@@ -134,7 +172,7 @@ function review(card, rating) {
   save();
 }
 
-// ---------- speaking: grading and suggestions ----------
+// ---------- speaking: grading ----------
 // <pure>
 const NUMW = { '0': 'ноль', '1': 'один', '2': 'два', '3': 'три', '4': 'четыре', '5': 'пять', '6': 'шесть', '7': 'семь', '8': 'восемь', '9': 'девять', '10': 'десять' };
 const norm = (s) => s.toLowerCase().replace(/ё/g, 'е').replace(/[^a-zа-я0-9\s]/g, ' ').replace(/\s+/g, ' ').trim()
@@ -186,47 +224,6 @@ function grade(target, heard) {
   return { ops, score, pass: score >= 0.8 };
 }
 
-// Hard Russian sounds and a tip for each (taken from the alphabet data).
-const HARD = 'ыжщчцхрьъ';
-function letterTips(word, max, got) {
-  const out = [], seen = {};
-  for (const ch of word) {
-    if (HARD.indexOf(ch) >= 0 && !seen[ch]) {
-      seen[ch] = 1;
-      if (got && got.indexOf(ch) >= 0) continue; // you already said this letter
-      const a = ALPHABET.find((x) => x[0].split(' ')[1] === ch);
-      if (a) out.push(`${a[0]} (“${a[1]}”): ${a[2]}`);
-      if (out.length >= max) break;
-    }
-  }
-  return out;
-}
-
-// Plain-language suggestions about what to fix.
-function suggest(g, tr, target) {
-  const out = [];
-  const exp = norm(target).split(' ').filter(Boolean);
-  const trw = (tr || '').trim().split(/\s+/);
-  const sound = (w) => { if (trw.length !== exp.length) return null; const k = exp.indexOf(w); return k >= 0 ? trw[k] : null; };
-  const bad = [];
-  for (const o of g.ops) {
-    if (o.exp !== null && o.s < 1) {
-      const snd = sound(o.exp);
-      const sfx = snd ? ` (sounds like “${snd}”)` : '';
-      if (o.got === null) out.push(`You skipped “${o.exp}”${sfx}.`);
-      else if (o.s >= 0.6) out.push(`Say “${o.exp}”${sfx}, not “${o.got}”.`);
-      else out.push(`“${o.exp}”${sfx} was heard as “${o.got}”. Say it slowly.`);
-      bad.push([o.exp, o.got]);
-    } else if (o.exp === null) {
-      out.push(`Leave out the extra word “${o.got}”.`);
-    }
-  }
-  const tips = [];
-  for (const b of bad) for (const t of letterTips(b[0], 2, b[1])) if (tips.indexOf(t) < 0 && tips.length < 2) tips.push(t);
-  tips.forEach((t) => out.push('Sound tip: ' + t));
-  if (g.score < 0.5 && exp.length > 1) out.push('Say each word separately first, then the whole phrase.');
-  return out;
-}
 // </pure>
 
 // ---------- speaking: microphone ----------
@@ -269,22 +266,14 @@ function listenOnce(cb) {
   try { r.start(); } catch (e) { cb.onerror('Could not start the microphone. Try again.'); cb.onend(); }
 }
 
-function feedbackHtml(res, tr, target) {
-  const w = (o) => {
-    if (o.exp === null) return `<span class="w extra"><small>extra word</small>${o.got}</span>`;
-    if (o.got === null) return `<span class="w bad">${o.exp}<small>missing</small></span>`;
-    if (o.s === 1) return `<span class="w ok">${o.exp}</span>`;
-    return `<span class="w ${o.s >= 0.6 ? 'near' : 'bad'}">${o.exp}<small>you said: ${o.got}</small></span>`;
-  };
-  const g = res.g;
-  const tips = g.score < 1 ? suggest(g, tr, target) : [];
+function feedbackHtml(res) {
+  const pct = Math.round(res.g.score * 100);
+  const cls = res.g.pass ? 'good' : pct >= 50 ? 'mid' : 'low';
   return `
-    <section class="card fbk">
-      <h2>${g.pass ? (g.score >= 0.95 ? '🎉 Perfect!' : '👍 Good, almost there') : '🔁 Try again'} <span class="muted">${Math.round(g.score * 100)}%</span></h2>
-      <p class="muted">I heard: <b>${res.heard}</b></p>
-      <div class="words">${g.ops.map(w).join('')}</div>
-      ${tips.length ? `<h3>💡 Suggestions</h3><ul class="sug">${tips.map((t) => `<li>${t}</li>`).join('')}</ul>` : ''}
-      ${!g.pass ? `<p class="muted" style="margin-top:8px">Tap 🔊 to hear it again, then say it slowly. Sounds like: <b>${tr}</b></p>` : ''}
+    <section class="card fbk pct ${cls}">
+      <div class="bigpct">${pct}%</div>
+      <div class="bar"><i style="width:${pct}%"></i></div>
+      ${res.g.pass ? '' : '<button class="btn small" data-again>🔊 Hear it again</button>'}
     </section>`;
 }
 
@@ -294,9 +283,11 @@ function mountMic(slot, target, tr, label, onResult) {
   let busy = false, msg = '';
   let res = micMemo[target] || null;
   const draw = () => {
-    slot.innerHTML = `<button class="btn mic ${busy ? 'rec' : ''}" ${busy ? 'disabled' : ''}>${busy ? '🎤 Listening… speak now' : '🎤 ' + (label || 'Tap, then say it in Russian')}</button>${msg ? `<p class="fb">${msg}</p>` : ''}${res ? feedbackHtml(res, tr, target) : ''}`;
+    slot.innerHTML = `<button class="btn mic ${busy ? 'rec' : ''}" ${busy ? 'disabled' : ''}>${busy ? '🎤 Listening… speak now' : '🎤 ' + (label || 'Tap, then say it in Russian')}</button>${msg ? `<p class="fb">${msg}</p>` : ''}${res ? feedbackHtml(res) : ''}`;
     const b = slot.querySelector('button');
     if (b) b.onclick = start;
+    const again = slot.querySelector('[data-again]');
+    if (again) again.onclick = () => speakFeedback(res, target);
   };
   const start = () => listenOnce({
     onstart: () => { busy = true; msg = ''; res = null; delete micMemo[target]; draw(); },
@@ -306,6 +297,7 @@ function mountMic(slot, target, tr, label, onResult) {
       res = { heard, g: grade(target, heard) };
       micMemo[target] = res;
       if (res.g.pass) { noteActivity(); save(); }
+      speakFeedback(res, target);
       if (onResult) onResult(res);
     },
     onerror: (m) => { msg = m; },
@@ -467,6 +459,7 @@ function showLetter(i) {
         <button class="btn" id="sl">🔊 Letter</button>
         <button class="btn" id="sw">🔊 Word</button>
       </div>
+      ${speedHtml()}
       <div class="mic-slot"></div>
       <a class="lnk" target="_blank" rel="noopener" href="${transLink(a[3])}">No sound? Listen on Google Translate</a>
       <button class="btn alt" id="sc">Close</button>
@@ -475,6 +468,7 @@ function showLetter(i) {
   $('#sc').onclick = close;
   $('#sw').onclick = () => speak(a[3]);
   $('#sl').onclick = () => speak(a[0].charAt(0));
+  bindSpeed(sh.querySelector('.speed'));
   mountMic(sh.querySelector('.mic-slot'), a[3], a[4], 'Say the word: ' + a[3]);
 }
 
@@ -888,6 +882,8 @@ function renderConv(say) {
 
 // ---------- start ----------
 document.querySelectorAll('#nav button').forEach((b) => { b.onclick = () => go(b.dataset.tab); });
+$('header').insertAdjacentHTML('beforeend', speedHtml());
+bindSpeed($('header .speed'));
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
 }
