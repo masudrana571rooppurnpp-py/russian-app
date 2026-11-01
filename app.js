@@ -8,7 +8,7 @@ const INTERVALS = [0, 1, 3, 7, 14, 30, 60]; // days until next review, by "box"
 // ---------- saved progress (stays on your phone) ----------
 let saved = {};
 try { saved = JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) {}
-let state = Object.assign({ cards: {}, streak: 0, lastDay: null, reviewed: { day: null, n: 0 }, level: 'beginner', lv: {}, convBest: {}, hints: true, rate: 0.8, alpha: [] }, saved);
+let state = Object.assign({ cards: {}, streak: 0, lastDay: null, reviewed: { day: null, n: 0 }, level: 'beginner', lv: {}, convBest: {}, hints: true, rate: 0.8, alpha: [], sfx: true }, saved);
 if (!(state.rate >= 0.4 && state.rate <= 1.2)) state.rate = 0.8;
 state.alpha = Array.isArray(state.alpha) ? state.alpha.filter((n) => Number.isInteger(n)) : [];
 if (!state.lv || typeof state.lv !== 'object') state.lv = {};
@@ -117,10 +117,55 @@ function speakSeq(parts) {
   if (speechSynthesis.paused) speechSynthesis.resume();
 }
 
-// The spoken feedback: "Correct", or "Say, please" followed by the right sentence.
+// ---------- right / wrong sound effects (made in the browser, no files) ----------
+let AC = null;
+let fbTimer = null;
+function warmAudio() {
+  try { AC = AC || new (window.AudioContext || window.webkitAudioContext)(); if (AC.state === 'suspended') AC.resume(); } catch (e) {}
+}
+// Plays a short happy (right) or low buzzing (wrong) sound. Returns how long to wait before speaking.
+function playSfx(ok) {
+  if (!state.sfx) return 0;
+  try {
+    warmAudio();
+    if (!AC) return 0;
+    const t0 = AC.currentTime;
+    const notes = ok ? [[660, 0], [880, 0.14]] : [[220, 0], [160, 0.17]];
+    notes.forEach(([f, d]) => {
+      const o = AC.createOscillator();
+      const g = AC.createGain();
+      o.type = ok ? 'sine' : 'sawtooth';
+      o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t0 + d);
+      g.gain.exponentialRampToValueAtTime(0.22, t0 + d + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + d + 0.24);
+      o.connect(g);
+      g.connect(AC.destination);
+      o.start(t0 + d);
+      o.stop(t0 + d + 0.26);
+    });
+    return 450;
+  } catch (e) { return 0; }
+}
+function sfxThen(ok, fn) {
+  clearTimeout(fbTimer);
+  const wait = playSfx(ok);
+  if (wait) fbTimer = setTimeout(fn, wait); else fn();
+}
+
+// Microphone answers: sound, then "Correct", or "Say, please" followed by the right sentence.
 function speakFeedback(res, target) {
-  if (res.g.pass) speakSeq([{ text: 'Correct', lang: 'en-US' }]);
-  else speakSeq([{ text: 'Say, please:', lang: 'en-US' }, { text: target, lang: 'ru-RU' }]);
+  sfxThen(res.g.pass, () => {
+    if (res.g.pass) speakSeq([{ text: 'Correct', lang: 'en-US' }]);
+    else speakSeq([{ text: 'Say, please:', lang: 'en-US' }, { text: target, lang: 'ru-RU' }]);
+  });
+}
+// Quiz answers: sound, then "Correct", or "Wrong" followed by the right Russian word.
+function quizFeedback(ok, q) {
+  sfxThen(ok, () => {
+    if (ok) speakSeq([{ text: 'Correct', lang: 'en-US' }]);
+    else speakSeq(q.card ? [{ text: 'Wrong', lang: 'en-US' }, { text: q.card.ru, lang: 'ru-RU' }] : [{ text: 'Wrong', lang: 'en-US' }]);
+  });
 }
 
 // ---------- voice speed control (one setting, shown wherever voice is used) ----------
@@ -344,7 +389,7 @@ function levelStats(L) {
 }
 
 const KIND_HINT = {
-  study: 'Finish all the cards of a day to complete it.',
+  study: 'Go through all the cards of a day to complete it.',
   quiz: 'Score 70% or more in the quiz to complete a day.',
   speak: 'Say every word of the day correctly to complete it.',
 };
@@ -391,6 +436,7 @@ function pickDay(rerender, kind) {
 // ---------- navigation ----------
 function go(tab, opt) {
   micMemo = {};
+  clearTimeout(fbTimer);
   try { if (activeRecog) activeRecog.abort(); } catch (e) {}
   if ('speechSynthesis' in window) speechSynthesis.cancel();
   const sh = $('#sheet');
@@ -471,6 +517,8 @@ function showSettings() {
         <div><b>${today}</b><span>reviews today</span></div>
         <div><b>${started}</b><span>words started</span></div>
       </section>
+      <h3>🔔 Sound effects</h3>
+      <button class="btn alt" id="sfx">Right / wrong sounds: ${state.sfx ? 'ON' : 'OFF'}</button>
       <h3>🔊 Sound help</h3>
       <button class="btn alt" id="sc-test">Test the sound</button>
       <p id="sc-out" style="margin-top:10px"></p>
@@ -483,6 +531,7 @@ function showSettings() {
   sh.querySelector('.sheet-bg').onclick = close;
   $('#sclose').onclick = close;
   $('#sc-test').onclick = soundCheck;
+  $('#sfx').onclick = () => { state.sfx = !state.sfx; save(); showSettings(); if (state.sfx) playSfx(true); };
   $('#reset').onclick = () => {
     if (confirm('Erase all progress?')) {
       state.cards = {}; state.streak = 0; state.lastDay = null; state.reviewed = { day: null, n: 0 };
@@ -535,6 +584,10 @@ function showLetter(i) {
       </div>
       ${speedHtml()}
       <div class="mic-slot"></div>
+      <div class="row2">
+        <button class="btn alt" id="lp" ${i === 0 ? 'disabled' : ''}>◀ Previous</button>
+        <button class="btn alt" id="ln" ${i === ALPHABET.length - 1 ? 'disabled' : ''}>Next ▶</button>
+      </div>
       <a class="lnk" target="_blank" rel="noopener" href="${transLink(a[3])}">No sound? Listen on Google Translate</a>
       <button class="btn alt" id="sc">Close</button>
     </div>`;
@@ -544,6 +597,8 @@ function showLetter(i) {
   $('#sl').onclick = () => speak(a[0].charAt(0));
   bindSpeed(sh.querySelector('.speed'));
   mountMic(sh.querySelector('.mic-slot'), a[3], a[4], 'Say the word: ' + a[3]);
+  $('#lp').onclick = () => { showLetter(i - 1); speak(ALPHABET[i - 1][3]); };
+  $('#ln').onclick = () => { showLetter(i + 1); speak(ALPHABET[i + 1][3]); };
 }
 
 // ---------- study (flashcards, one day at a time) ----------
@@ -551,91 +606,86 @@ let session = null;
 
 function newSession(mode) {
   const t = todayNum();
-  let queue;
-  if (mode === 'due') queue = shuffle(ALL.filter((c) => state.cards[c.id] && state.cards[c.id].due <= t)).slice(0, 30);
-  else if (mode === 'all') queue = shuffle(dayCards(state.day));
-  else queue = shuffle(dayCards(state.day).filter((c) => !state.cards[c.id] || state.cards[c.id].due <= t));
-  return { mode: mode || 'day', day: state.day, queue, total: queue.length, done: 0, shown: false, hist: [] };
+  const list = mode === 'due'
+    ? shuffle(ALL.filter((c) => state.cards[c.id] && state.cards[c.id].due <= t)).slice(0, 30)
+    : dayCards(state.day);
+  return { mode: mode || 'day', day: state.day, list, i: 0, finished: false, rated: {}, spokenAt: -1 };
+}
+
+// Leaving a card schedules it: said wrongly = again soon, said well = later, not tried = normal.
+function rateCard(c, s) {
+  if (s.rated[c.id]) return;
+  s.rated[c.id] = 1;
+  const m = micMemo[c.ru];
+  review(c, m ? (m.g.pass ? (m.g.score >= 0.95 ? 2 : 1) : 0) : 1);
 }
 
 function renderStudy(fresh, mode) {
   if (fresh || !session) session = newSession(mode);
   const s = session;
-  // finishing every card completes the day (marked first so the status strip is already up to date)
-  if (!s.queue.length && s.total && s.mode !== 'due') { prog(s.day).study = true; save(); }
   const header = s.mode === 'due' ? '<div class="daybar solo"><span><b>Review: words due now</b></span></div>' : dayBarHtml() + statusHtml('study');
   const rerender = () => renderStudy(true);
 
-  if (!s.queue.length) {
+  if (s.finished || !s.list.length) {
     const last = state.day === LDAYS.length - 1;
-    const title = s.total ? '🎉 Lesson complete' : s.mode === 'due' ? 'No words are due' : 'Nothing is due in this day';
-    const text = s.total ? `You reviewed ${s.done} card${s.done === 1 ? '' : 's'}. Great work!` : s.mode === 'due' ? 'Come back later, or study the next day.' : 'You already know these words for now. Practise again, or move on.';
+    const title = !s.list.length ? 'No words are due' : s.mode === 'due' ? '🎉 Review complete' : '🎉 Lesson complete';
+    const text = !s.list.length ? 'Come back later, or study the next day.' : `You went through ${s.list.length} card${s.list.length === 1 ? '' : 's'}. Great work!`;
     view.innerHTML = `
       ${header}
       <section class="card center">
         <h2>${title}</h2>
         <p class="muted">${text}</p>
-        ${s.mode === 'due'
-          ? '<button class="btn" id="home">Back to Home</button>'
+        ${s.mode === 'due' || !s.list.length
+          ? '<button class="btn" id="home">Back to the level</button>'
           : `<button class="btn" id="again">Practise this day again</button>
              <button class="btn alt" id="toquiz">Take the Day ${state.day + 1} quiz</button>
              ${last ? '' : '<button class="btn alt" id="nextday">Next day ▶</button>'}`}
+        ${s.list.length ? '<button class="btn small" id="lastcard">◀ Back to the last card</button>' : ''}
       </section>`;
     if (s.mode !== 'due') bindDayBar(rerender, 'study');
     const bind = (id, fn) => { const el = $('#' + id); if (el) el.onclick = fn; };
-    bind('home', () => go('home'));
-    bind('again', () => renderStudy(true, 'all'));
+    bind('home', () => go('level'));
+    bind('again', () => renderStudy(true));
     bind('toquiz', () => go('quiz'));
     bind('nextday', () => { setDay(state.day + 1); rerender(); });
+    bind('lastcard', () => { s.finished = false; s.i = s.list.length - 1; s.spokenAt = -1; renderStudy(); });
     return;
   }
 
-  const c = s.queue[0];
+  const c = s.list[s.i];
   const isNew = !state.cards[c.id];
+  const lastCard = s.i === s.list.length - 1;
   view.innerHTML = `
     ${header}
-    <div class="meta"><span>${s.mode === 'due' ? 'Due words' : 'Day ' + (s.day + 1)}</span><span>${s.done}/${s.total}</span></div>
-    <div class="bar"><i style="width:${s.total ? Math.round((s.done / s.total) * 100) : 0}%"></i></div>
-    <section class="flash" id="flash">
+    <div class="meta"><span>${s.mode === 'due' ? 'Due words' : 'Day ' + (s.day + 1)}</span><span>Card ${s.i + 1}/${s.list.length}</span></div>
+    <div class="bar"><i style="width:${Math.round((s.i / s.list.length) * 100)}%"></i></div>
+    <section class="flash">
       ${isNew ? '<span class="badge">NEW</span>' : ''}
       <div class="ru">${c.ru}</div>
-      ${s.shown ? `<div class="tr">${c.tr}</div><div class="en">${c.en}</div>` : '<div class="muted">Tap to reveal</div>'}
+      <div class="tr">${c.tr}</div>
+      <div class="en">${c.en}</div>
       <button class="speak" id="say" aria-label="Listen">🔊</button>
     </section>
     <div class="mic-slot"></div>
-    <a class="lnk" target="_blank" rel="noopener" href="${transLink(c.ru)}">No sound? Listen on Google Translate</a>
-    ${s.shown
-      ? '<div class="rate"><button class="r0" data-r="0">Again</button><button class="r1" data-r="1">Good</button><button class="r2" data-r="2">Easy</button></div>'
-      : '<button class="btn" id="show">Show answer</button>'}
-    ${s.hist.length ? '<button class="btn small" id="prevc">◀ Previous card</button>' : ''}`;
+    <div class="row2">
+      <button class="btn alt" id="pc" ${s.i === 0 ? 'disabled' : ''}>◀ Previous</button>
+      <button class="btn" id="nc">${lastCard ? 'Finish ✔' : 'Next ▶'}</button>
+    </div>
+    <a class="lnk" target="_blank" rel="noopener" href="${transLink(c.ru)}">No sound? Listen on Google Translate</a>`;
 
   if (s.mode !== 'due') bindDayBar(rerender, 'study');
-  $('#say').onclick = (e) => { e.stopPropagation(); speak(c.ru); };
+  $('#say').onclick = () => speak(c.ru);
   mountMic(view.querySelector('.mic-slot'), c.ru, c.tr, 'Say it in Russian');
-  $('#flash').onclick = () => { if (!s.shown) { s.shown = true; renderStudy(); } };
-  const showBtn = $('#show');
-  if (showBtn) showBtn.onclick = () => { s.shown = true; renderStudy(); };
-  view.querySelectorAll('[data-r]').forEach((b) => {
-    b.onclick = () => {
-      const r = +b.dataset.r;
-      s.queue.shift();
-      s.shown = false;
-      review(c, r);
-      delete micMemo[c.ru];
-      if (r === 0) s.queue.push(c); else s.done++;
-      s.hist.push({ c, counted: r !== 0 });
-      renderStudy();
-    };
-  });
-  const prev = $('#prevc');
-  if (prev) prev.onclick = () => {
-    const h = s.hist.pop();
-    s.queue = s.queue.filter((x) => x.id !== h.c.id);
-    s.queue.unshift(h.c);
-    if (h.counted) s.done--;
-    s.shown = false;
+  $('#pc').onclick = () => { s.i--; s.spokenAt = -1; renderStudy(); };
+  $('#nc').onclick = () => {
+    rateCard(c, s);
+    if (lastCard) {
+      s.finished = true;
+      if (s.mode !== 'due') { prog(s.day).study = true; save(); }
+    } else { s.i++; s.spokenAt = -1; }
     renderStudy();
   };
+  if (s.spokenAt !== s.i) { s.spokenAt = s.i; speak(c.ru); } // you hear each word as it appears
 }
 
 // ---------- quizzes (one day at a time) ----------
@@ -702,28 +752,34 @@ function buildAlphaQuiz() {
 }
 
 function startQz(build, back, mode, kind) {
-  qz = { build, back, mode, kind, day: state.day, items: build(), i: 0, score: 0, missed: [], picked: null };
+  const items = build();
+  items.forEach((q) => { q.picked = null; });
+  qz = { build, back, mode, kind, day: state.day, items, i: 0 };
   renderQz();
 }
+const qzScore = () => qz.items.filter((q) => q.picked === q.ans).length;
 
 function renderQz() {
   const q = qz.items[qz.i];
+  const n = qz.items.length;
 
   if (!q) {
-    const n = qz.items.length;
+    const score = qzScore();
     if (qz.kind === 'day') {
       const p = prog(qz.day);
-      if (!p.quizOf || qz.score >= p.quiz) { p.quiz = qz.score; p.quizOf = n; }
+      if (!p.quizOf || score >= p.quiz) { p.quiz = score; p.quizOf = n; }
       save();
     }
+    const missed = qz.items.filter((x) => x.picked !== x.ans).map((x) => x.reveal);
     const isVocab = qz.kind === 'day' || qz.kind === 'review';
     view.innerHTML = `
       <section class="card center">
-        <h2>${qz.score} / ${n}</h2>
-        ${qz.kind === 'day' ? (qz.score / n >= PASS_RATIO ? '<p class="okmsg">✔ Day completed!</p>' : '<p class="muted">Score 70% or more to complete this day.</p>') : ''}
-        <p class="muted">${qz.score >= 8 ? 'Excellent! 🎉' : qz.score >= 5 ? 'Good work, keep going.' : 'Keep practising, you will get there.'}</p>
-        ${qz.missed.length ? `<div class="missed"><h3>Review these</h3>${qz.missed.map((m) => `<p>${m}</p>`).join('')}</div>` : ''}
+        <h2>${score} / ${n}</h2>
+        ${qz.kind === 'day' ? (score / n >= PASS_RATIO ? '<p class="okmsg">✔ Day completed!</p>' : '<p class="muted">Score 70% or more to complete this day.</p>') : ''}
+        <p class="muted">${score >= 8 ? 'Excellent! 🎉' : score >= 5 ? 'Good work, keep going.' : 'Keep practising, you will get there.'}</p>
+        ${missed.length ? `<div class="missed"><h3>Review these</h3>${missed.map((m) => `<p>${m}</p>`).join('')}</div>` : ''}
         <button class="btn" id="qa">Try again</button>
+        <button class="btn alt" id="qlast">◀ Previous question</button>
         ${isVocab ? `<div class="row2">
           <button class="btn alt" id="qp" ${state.day === 0 ? 'disabled' : ''}>◀ Previous day</button>
           <button class="btn alt" id="qn" ${state.day === LDAYS.length - 1 ? 'disabled' : ''}>Next day ▶</button>
@@ -731,6 +787,7 @@ function renderQz() {
         <button class="btn alt" id="qb">Back</button>
       </section>`;
     $('#qa').onclick = () => startQz(qz.build, qz.back, qz.mode, qz.kind);
+    $('#qlast').onclick = () => { qz.i = n - 1; renderQz(); };
     $('#qb').onclick = () => go(qz.back);
     if (isVocab) {
       $('#qp').onclick = () => { setDay(state.day - 1); renderQuizSetup(); };
@@ -739,19 +796,23 @@ function renderQz() {
     return;
   }
 
-  const done = qz.picked !== null;
+  const done = q.picked !== null;
   view.innerHTML = `
-    <div class="meta"><span>Question ${qz.i + 1}/${qz.items.length}</span><span>Score ${qz.score}</span></div>
-    <div class="bar"><i style="width:${Math.round((qz.i / qz.items.length) * 100)}%"></i></div>
+    <div class="meta"><span>Question ${qz.i + 1}/${n}</span><span>Score ${qzScore()}</span></div>
+    <div class="bar"><i style="width:${Math.round((qz.i / n) * 100)}%"></i></div>
     <section class="card center">
       <div class="qp">${q.prompt}</div>
       ${q.sub ? `<div class="muted">${q.sub}</div>` : ''}
       ${q.say ? '<button class="speak inline" id="say" aria-label="Listen">🔊</button>' : ''}
     </section>
     <div class="opts">
-      ${q.opts.map((o, i) => `<button class="opt ${done ? (i === q.ans ? 'right' : i === qz.picked ? 'wrong' : '') : ''}" data-i="${i}" ${done ? 'disabled' : ''}>${o}</button>`).join('')}
+      ${q.opts.map((o, i) => `<button class="opt ${done ? (i === q.ans ? 'right' : i === q.picked ? 'wrong' : '') : ''}" data-i="${i}" ${done ? 'disabled' : ''}>${o}</button>`).join('')}
     </div>
-    ${done ? `<p class="fb">${q.reveal}</p><div class="mic-slot"></div><button class="btn" id="next">${qz.i + 1 === qz.items.length ? 'See result' : 'Next'}</button>` : ''}`;
+    ${done ? `<p class="fb">${q.reveal}</p><div class="mic-slot"></div>` : ''}
+    <div class="row2">
+      <button class="btn alt" id="qprev" ${qz.i === 0 ? 'disabled' : ''}>◀ Previous</button>
+      <button class="btn" id="next" ${done ? '' : 'disabled'}>${qz.i + 1 === n ? 'See result' : 'Next ▶'}</button>
+    </div>`;
 
   const sayBtn = $('#say');
   if (sayBtn) sayBtn.onclick = () => speak(q.say);
@@ -760,17 +821,16 @@ function renderQz() {
 
   view.querySelectorAll('.opt').forEach((b) => {
     b.onclick = () => {
-      if (qz.picked !== null) return;
-      const i = +b.dataset.i;
-      qz.picked = i;
-      const ok = i === q.ans;
-      if (ok) qz.score++; else qz.missed.push(q.reveal);
+      if (q.picked !== null) return;
+      q.picked = +b.dataset.i;
+      const ok = q.picked === q.ans;
       if (q.card) review(q.card, ok ? 1 : 0);
+      quizFeedback(ok, q);
       renderQz();
     };
   });
-  const next = $('#next');
-  if (next) next.onclick = () => { if (q.mic) delete micMemo[q.mic.t]; qz.i++; qz.picked = null; renderQz(); };
+  $('#qprev').onclick = () => { qz.i--; renderQz(); };
+  $('#next').onclick = () => { qz.i++; renderQz(); };
 }
 
 // ---------- speak tab (one day at a time) ----------
@@ -868,7 +928,7 @@ function renderConvIntro(i, role) {
 
 function startConv(i, role) {
   const sc = LSCEN[i];
-  conv = { sc, role, i: 0, log: [], scores: [], lineBest: 0, revealed: false, skipped: 0 };
+  conv = { sc, role, i: 0, log: [], scores: [], lineBest: 0, revealed: false, skipped: 0, stack: [] };
   micMemo = {};
   convAdvance();
 }
@@ -887,6 +947,16 @@ function convAdvance() {
   conv.lineBest = 0;
   conv.revealed = false;
   renderConv(say);
+}
+
+// Goes back to your previous line (the partner's line before it is spoken again).
+function convBack() {
+  const snap = conv.stack.pop();
+  if (!snap) return;
+  conv.i = snap.i; conv.log.length = snap.log; conv.scores.length = snap.scores; conv.skipped = snap.skipped;
+  conv.lineBest = 0; conv.revealed = false;
+  const last = conv.log[conv.log.length - 1];
+  renderConv(last && !convIsMine(last) ? last[1] : null);
 }
 
 function renderConv(say) {
@@ -914,12 +984,15 @@ function renderConv(say) {
         <p class="muted">Your score: <b>${avg}%</b>${conv.skipped ? ` · ${conv.skipped} line${conv.skipped === 1 ? '' : 's'} skipped` : ''}</p>
         ${avg >= PASS_RATIO * 100 ? '<p class="okmsg">✔ Conversation completed!</p>' : '<p class="muted">Score 70% or more to complete it.</p>'}
         <button class="btn" id="again">Practise again</button>
+        ${conv.stack.length ? '<button class="btn alt" id="pl">◀ Previous line</button>' : ''}
         <button class="btn alt" id="swap">Swap roles and play again</button>
         <button class="btn alt" id="all">Choose another conversation</button>
       </section>`;
     $('#again').onclick = () => startConv(LSCEN.indexOf(sc), conv.role);
     $('#swap').onclick = () => startConv(LSCEN.indexOf(sc), conv.role === 'Y' ? 'P' : 'Y');
     $('#all').onclick = renderTalk;
+    const plf = $('#pl');
+    if (plf) plf.onclick = convBack;
     view.querySelectorAll('.bsay').forEach((b) => { b.onclick = () => speak(conv.log[+b.dataset.i][1], 0.85); });
     return;
   }
@@ -937,7 +1010,10 @@ function renderConv(say) {
       <div class="chips"><button class="chip" id="hear">🔊 Hear it</button></div>
       <div class="mic-slot"></div>
       <button class="btn" id="cont" ${already ? '' : 'hidden'}>Continue →</button>
-      <button class="btn small" id="skip">Skip this line</button>
+      <div class="row2">
+        <button class="btn alt" id="pl" ${conv.stack.length ? '' : 'disabled'}>◀ Previous</button>
+        <button class="btn alt" id="skip">Skip ▶</button>
+      </div>
     </section>
     <button class="btn small" id="exit">Stop and go back</button>`;
 
@@ -950,6 +1026,7 @@ function renderConv(say) {
     if (res.g.pass) $('#cont').hidden = false;
   });
   const step = (score, skipped) => {
+    conv.stack.push({ i: conv.i, log: conv.log.length, scores: conv.scores.length, skipped: conv.skipped });
     conv.scores.push(score);
     if (skipped) conv.skipped++;
     conv.log.push(line);
@@ -959,6 +1036,7 @@ function renderConv(say) {
   };
   $('#cont').onclick = () => step(Math.max(conv.lineBest, micMemo[line[1]] ? micMemo[line[1]].g.score : 0), false);
   $('#skip').onclick = () => step(0, true);
+  $('#pl').onclick = convBack;
   $('#exit').onclick = renderTalk;
   if (say) speak(say, 0.85);
   const turn = $('#turn');
@@ -967,6 +1045,7 @@ function renderConv(say) {
 
 // ---------- start ----------
 document.querySelectorAll('#nav button').forEach((b) => { b.onclick = () => go(b.dataset.tab); });
+document.addEventListener('pointerdown', warmAudio);
 $('#gear').onclick = showSettings;
 $('header').insertAdjacentHTML('beforeend', speedHtml());
 bindSpeed($('header .speed'));
