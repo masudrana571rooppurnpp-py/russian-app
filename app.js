@@ -8,8 +8,9 @@ const INTERVALS = [0, 1, 3, 7, 14, 30, 60]; // days until next review, by "box"
 // ---------- saved progress (stays on your phone) ----------
 let saved = {};
 try { saved = JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) {}
-let state = Object.assign({ cards: {}, streak: 0, lastDay: null, reviewed: { day: null, n: 0 }, level: 'beginner', lv: {}, convBest: {}, hints: true, rate: 0.8 }, saved);
+let state = Object.assign({ cards: {}, streak: 0, lastDay: null, reviewed: { day: null, n: 0 }, level: 'beginner', lv: {}, convBest: {}, hints: true, rate: 0.8, alpha: [] }, saved);
 if (!(state.rate >= 0.4 && state.rate <= 1.2)) state.rate = 0.8;
+state.alpha = Array.isArray(state.alpha) ? state.alpha.filter((n) => Number.isInteger(n)) : [];
 if (!state.lv || typeof state.lv !== 'object') state.lv = {};
 // progress saved by older versions belongs to the Beginner level
 if (saved.progress && !saved.lv) state.lv.beginner = { day: saved.day || 0, progress: saved.progress };
@@ -56,7 +57,6 @@ function setLevel(id) {
   save();
   applyLevel();
   session = null; sp = null;
-  renderHome();
 }
 const dayCards = (di) => ALL.filter((c) => c.day === di);
 const prog = (d) => {
@@ -316,25 +316,70 @@ function dayBarHtml() {
   </div>`;
 }
 function setDay(n) { state.day = Math.max(0, Math.min(LDAYS.length - 1, n)); save(); }
-function bindDayBar(rerender) {
+const PASS_RATIO = 0.7; // a quiz or a conversation counts as completed at 70% or more
+
+// Is this day completed for a sub-level? kind: study | quiz | speak
+function dayDone(kind, L, di) {
+  const p = state.lv[L.id].progress[di] || {};
+  if (kind === 'study') return !!p.study;
+  if (kind === 'quiz') return !!p.quizOf && p.quiz / p.quizOf >= PASS_RATIO;
+  return !!p.spoke && p.spoke.length >= L.days[di].cards.length;
+}
+const talkDone = (s) => (state.convBest[s.id] || 0) >= PASS_RATIO * 100;
+
+// Everything completed in one level, sub-level by sub-level.
+function levelStats(L) {
+  const n = L.days.length;
+  const count = (kind) => L.days.filter((d, i) => dayDone(kind, L, i)).length;
+  const items = [
+    { key: 'study', icon: '📖', name: 'Study', done: count('study'), total: n, unit: 'days' },
+    { key: 'quiz', icon: '✅', name: 'Quiz', done: count('quiz'), total: n, unit: 'days' },
+    { key: 'speak', icon: '🎤', name: 'Speak', done: count('speak'), total: n, unit: 'days' },
+    { key: 'talk', icon: '💬', name: 'Talk', done: L.scenarios.filter(talkDone).length, total: L.scenarios.length, unit: 'conversations' },
+  ];
+  if (L.id === 'beginner') items.push({ key: 'alphabet', icon: 'Aa', name: 'Alphabet', done: state.alpha.length, total: ALPHABET.length, unit: 'letters seen' });
+  const done = items.reduce((t, i) => t + i.done, 0);
+  const total = items.reduce((t, i) => t + i.total, 0);
+  return { items, pct: Math.round((done / total) * 100) };
+}
+
+const KIND_HINT = {
+  study: 'Finish all the cards of a day to complete it.',
+  quiz: 'Score 70% or more in the quiz to complete a day.',
+  speak: 'Say every word of the day correctly to complete it.',
+};
+// A small status strip for the sub-level pages: is this day completed, and how many days overall.
+function statusHtml(kind) {
+  const L = curLevel();
+  const done = L.days.filter((d, i) => dayDone(kind, L, i)).length;
+  const today = dayDone(kind, L, state.day);
+  return `<div class="status"><span class="pill ${today ? 'ok' : ''}">${today ? '✔ Day ' + (state.day + 1) + ' completed' : 'Day ' + (state.day + 1) + ' not completed yet'}</span><span>${done}/${L.days.length} days completed</span></div><p class="muted hint">${KIND_HINT[kind]}</p>`;
+}
+
+function bindDayBar(rerender, kind) {
   $('#dprev').onclick = () => { setDay(state.day - 1); rerender(); };
   $('#dnext').onclick = () => { setDay(state.day + 1); rerender(); };
-  $('#dpick').onclick = () => pickDay(rerender);
+  $('#dpick').onclick = () => pickDay(rerender, kind);
 }
-function pickDay(rerender) {
+function pickDay(rerender, kind) {
   const sh = $('#sheet');
+  const L = curLevel();
   const close = () => { sh.hidden = true; sh.innerHTML = ''; };
+  const rowStatus = (i) => {
+    const p = state.progress[i] || {};
+    const ok = dayDone(kind, L, i);
+    if (kind === 'study') return ok ? '✔ Completed' : 'Not completed';
+    if (kind === 'quiz') return p.quizOf ? `${ok ? '✔' : '•'} ${p.quiz}/${p.quizOf}` : 'Not taken';
+    const n = (p.spoke || []).length;
+    return `${ok ? '✔' : '•'} ${n}/${LDAYS[i].cards.length} words`;
+  };
   sh.hidden = false;
   sh.innerHTML = `
     <div class="sheet-bg"></div>
     <div class="sheet-box">
       <h2>Choose a day</h2>
       <div class="daylist">
-        ${LDAYS.map((d, i) => {
-          const p = state.progress[i] || {};
-          const badges = [p.study ? '📖' : '', p.quizOf ? `✅ ${p.quiz}/${p.quizOf}` : '', p.spoke && p.spoke.length ? `🎤 ${p.spoke.length}/${d.cards.length}` : ''].filter(Boolean).join('  ');
-          return `<button class="dayrow ${i === state.day ? 'on' : ''}" data-d="${i}"><span><b>Day ${i + 1}</b> · ${d.title}</span><small>${badges}</small></button>`;
-        }).join('')}
+        ${LDAYS.map((d, i) => `<button class="dayrow ${i === state.day ? 'on' : ''} ${dayDone(kind, L, i) ? 'done' : ''}" data-d="${i}"><span><b>Day ${i + 1}</b> · ${d.title}</span><small>${rowStatus(i)}</small></button>`).join('')}
       </div>
       <button class="btn alt" id="dclose">Close</button>
     </div>`;
@@ -350,9 +395,13 @@ function go(tab, opt) {
   if ('speechSynthesis' in window) speechSynthesis.cancel();
   const sh = $('#sheet');
   sh.hidden = true; sh.innerHTML = '';
-  document.querySelectorAll('#nav button').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
+  const active = tab === 'alphabet' ? 'level' : tab;
+  document.querySelectorAll('#nav button').forEach((b) => b.classList.toggle('on', b.dataset.tab === active));
+  $('#nav').hidden = tab === 'home';
+  document.body.classList.toggle('nonav', tab === 'home');
   window.scrollTo(0, 0);
   if (tab === 'home') renderHome();
+  else if (tab === 'level') renderLevel();
   else if (tab === 'alphabet') renderAlphabet();
   else if (tab === 'study') renderStudy(true, opt);
   else if (tab === 'quiz') renderQuizSetup();
@@ -360,92 +409,117 @@ function go(tab, opt) {
   else renderTalk();
 }
 
-// ---------- home ----------
+// ---------- home: the three levels ----------
 function renderHome() {
-  const t = todayNum();
-  const streak = state.lastDay !== null && state.lastDay >= t - 1 ? state.streak : 0;
-  const seen = Object.keys(state.cards).length;
-  const known = Object.values(state.cards).filter((s) => s.box >= 3).length;
-  const due = ALL.filter((c) => state.cards[c.id] && state.cards[c.id].due <= t).length;
-  const today = state.reviewed.day === t ? state.reviewed.n : 0;
-  const d = LDAYS[state.day];
-  const p = prog(state.day);
-  const studied = Object.keys(state.progress).filter((k) => state.progress[k].study).length;
-  const lvl = curLevel();
-  const levelCards = LEVELS.map((l) => {
-    const n = Object.values(state.lv[l.id].progress).filter((p) => p.study).length;
-    return `<button class="lvl ${l.id === state.level ? 'on' : ''}" data-lv="${l.id}"><span class="lemo">${l.emoji}</span><b>${l.name}</b><small>${n}/${l.days.length} days</small></button>`;
-  }).join('');
-
   view.innerHTML = `
-    <section class="stats">
-      <div><b>${streak}</b><span>day streak 🔥</span></div>
-      <div><b>${today}</b><span>reviews today</span></div>
-      <div><b>${due}</b><span>due now</span></div>
-    </section>
-    <section class="levels">${levelCards}</section>
-    <section class="card">
-      <h2>${lvl.emoji} ${lvl.name} level</h2>
-      <p class="muted" style="margin-bottom:6px">${lvl.sub}</p>
-      ${dayBarHtml()}
-      <p class="muted" style="margin:10px 0 4px">${d.cards.slice(0, 6).map((c) => c[0]).join(' · ')}${d.cards.length > 6 ? ' …' : ''}</p>
-      <p class="muted">${p.study ? '📖 studied' : '📖 not studied yet'} · ${p.quizOf ? '✅ quiz ' + p.quiz + '/' + p.quizOf : '✅ no quiz yet'} · 🎤 ${p.spoke.length}/${d.cards.length}</p>
-      <div class="row3">
-        <button class="btn" data-go="study">Study</button>
-        <button class="btn" data-go="quiz">Quiz</button>
-        <button class="btn" data-go="speak">Speak</button>
-      </div>
-      ${due ? `<button class="btn alt" id="due">Review ${due} due word${due === 1 ? '' : 's'}</button>` : ''}
-      <button class="btn alt" data-go="talk">💬 Practise a conversation</button>
-    </section>
-    <section class="card">
-      <h2>Your progress</h2>
-      <div class="bar"><i style="width:${Math.round((known / ALL.length) * 100)}%"></i></div>
-      <p class="muted">${studied}/${LDAYS.length} days studied · ${known} well known · ${seen} started · ${ALL.length} words in total</p>
-    </section>
-    <section class="card tip">
-      <h2>🔊 Sound help</h2>
-      <button class="btn alt" id="sc-test">Test the sound</button>
-      <p id="sc-out" style="margin-top:10px"></p>
-      <p style="margin-top:10px">No Russian voice? On Android: Settings → search "Text-to-speech output" → choose <b>Speech Services by Google</b> → ⚙ → <b>Install voice data</b> → <b>Russian</b>. Also raise the media volume. Then restart this app.</p>
-    </section>
-    <section class="card tip">
-      <h2>How to learn</h2>
-      <p>1) Choose your level above: Beginner, Mid (daily life and engineering basics) or Professional (electrical and power engineering). New to Russian? Start with Beginner and the Alphabet tab. 2) Each day: Study the words, take the Quiz, then Speak them aloud with 🎤. 3) Use the ◀ ▶ buttons to move between days. 4) Practise real situations in the Talk tab. Come back every day: the app brings old words back just before you forget them.</p>
-    </section>
-    <button class="btn small" id="reset">Reset my progress</button>`;
+    <h2>Choose your level</h2>
+    ${LEVELS.map((l) => {
+      const st = levelStats(l);
+      return `
+      <div class="card lvlcard" role="button" tabindex="0" data-lv="${l.id}">
+        <div class="lvhead"><span class="lemo">${l.emoji}</span><span class="lvt"><b>${l.name}</b><small>${l.sub}</small></span><span class="lvpct">${st.pct}%</span></div>
+        <div class="bar"><i style="width:${st.pct}%"></i></div>
+        <div class="subgrid">${st.items.map((i) => `<span class="subi ${i.done === i.total ? 'full' : ''}">${i.done === i.total ? '✔' : i.icon} ${i.name} <b>${i.done}/${i.total}</b></span>`).join('')}</div>
+      </div>`;
+    }).join('')}`;
+  view.querySelectorAll('[data-lv]').forEach((b) => { b.onclick = () => { setLevel(b.dataset.lv); go('level'); }; });
+}
 
-  bindDayBar(renderHome);
-  view.querySelectorAll('[data-lv]').forEach((b) => { b.onclick = () => setLevel(b.dataset.lv); });
+// ---------- inside a level: its sub-levels ----------
+function renderLevel() {
+  const L = curLevel();
+  const st = levelStats(L);
+  const t = todayNum();
+  const due = ALL.filter((c) => state.cards[c.id] && state.cards[c.id].due <= t).length;
+  view.innerHTML = `
+    <button class="btn small" id="back">◀ All levels</button>
+    <section class="card">
+      <div class="lvhead"><span class="lemo">${L.emoji}</span><span class="lvt"><b>${L.name} level</b><small>${L.sub}</small></span><span class="lvpct">${st.pct}%</span></div>
+      <div class="bar"><i style="width:${st.pct}%"></i></div>
+    </section>
+    ${st.items.map((i) => {
+      const pc = i.total ? Math.round((i.done / i.total) * 100) : 0;
+      return `
+      <button class="card sub" data-go="${i.key}">
+        <span class="emo">${i.icon}</span>
+        <span class="scx"><b>${i.name}</b><small>${i.done}/${i.total} ${i.unit}${i.key === 'alphabet' ? '' : ' completed'}</small><span class="mbar"><i style="width:${pc}%"></i></span></span>
+        ${i.done === i.total ? '<span class="done">✔ Completed</span>' : '<span class="chev">›</span>'}
+      </button>`;
+    }).join('')}
+    ${due ? `<button class="btn alt" id="due">🔁 Review ${due} due word${due === 1 ? '' : 's'}</button>` : ''}`;
+  $('#back').onclick = () => go('home');
   view.querySelectorAll('[data-go]').forEach((b) => { b.onclick = () => go(b.dataset.go); });
   const dueBtn = $('#due');
   if (dueBtn) dueBtn.onclick = () => go('study', 'due');
+}
+
+// ---------- settings (⚙): streak, sound help, reset ----------
+function showSettings() {
+  const t = todayNum();
+  const streak = state.lastDay !== null && state.lastDay >= t - 1 ? state.streak : 0;
+  const today = state.reviewed.day === t ? state.reviewed.n : 0;
+  const started = Object.keys(state.cards).length;
+  const sh = $('#sheet');
+  const close = () => { sh.hidden = true; sh.innerHTML = ''; };
+  sh.hidden = false;
+  sh.innerHTML = `
+    <div class="sheet-bg"></div>
+    <div class="sheet-box left">
+      <h2>Settings</h2>
+      <section class="stats">
+        <div><b>${streak}</b><span>day streak 🔥</span></div>
+        <div><b>${today}</b><span>reviews today</span></div>
+        <div><b>${started}</b><span>words started</span></div>
+      </section>
+      <h3>🔊 Sound help</h3>
+      <button class="btn alt" id="sc-test">Test the sound</button>
+      <p id="sc-out" style="margin-top:10px"></p>
+      <p class="muted">No Russian voice? On Android: Settings → search "Text-to-speech output" → choose <b>Speech Services by Google</b> → ⚙ → <b>Install voice data</b> → <b>Russian</b>. Also raise the media volume. Then restart this app.</p>
+      <h3>How to learn</h3>
+      <p class="muted">Pick a level on the home page. Inside it, work through Study, Quiz, Speak and Talk day by day. In every section tap 🎤 and say the word aloud: the voice tells you if it is correct. Come back every day: the app brings old words back just before you forget them.</p>
+      <button class="btn small" id="reset">Reset my progress</button>
+      <button class="btn alt" id="sclose">Close</button>
+    </div>`;
+  sh.querySelector('.sheet-bg').onclick = close;
+  $('#sclose').onclick = close;
   $('#sc-test').onclick = soundCheck;
   $('#reset').onclick = () => {
     if (confirm('Erase all progress?')) {
       state.cards = {}; state.streak = 0; state.lastDay = null; state.reviewed = { day: null, n: 0 };
       for (const l of LEVELS) state.lv[l.id] = { day: 0, progress: {} };
-      state.convBest = {};
-      save(); renderHome();
+      state.convBest = {}; state.alpha = [];
+      save(); close(); go('home');
     }
   };
 }
 
 // ---------- alphabet ----------
 function renderAlphabet() {
+  const seen = state.alpha.length;
   view.innerHTML = `
+    <button class="btn small" id="back">◀ ${curLevel().name} level</button>
     <h2>The Russian alphabet</h2>
-    <p class="muted">33 letters. Tap a letter to hear it and to practise saying it.</p>
+    <div class="status"><span class="pill ${seen === ALPHABET.length ? 'ok' : ''}" id="alphacount">${seen}/${ALPHABET.length} letters seen</span></div>
+    <p class="muted">Tap a letter to hear it and to practise saying it.</p>
     <div class="grid">
-      ${ALPHABET.map((a, i) => `<button class="tile" data-i="${i}"><span class="big">${a[0]}</span><span class="tr">${a[1]}</span></button>`).join('')}
+      ${ALPHABET.map((a, i) => `<button class="tile ${state.alpha.indexOf(i) >= 0 ? 'seen' : ''}" data-i="${i}"><span class="big">${a[0]}</span><span class="tr">${a[1]}</span></button>`).join('')}
     </div>
     <button class="btn" id="aq">Practise the alphabet</button>`;
+  $('#back').onclick = () => go('level');
   view.querySelectorAll('.tile').forEach((b) => { b.onclick = () => { showLetter(+b.dataset.i); speak(ALPHABET[+b.dataset.i][3]); }; });
   $('#aq').onclick = () => startQz(buildAlphaQuiz, 'alphabet', 'alpha', 'alpha');
 }
 
 function showLetter(i) {
   const a = ALPHABET[i];
+  if (state.alpha.indexOf(i) < 0) {
+    state.alpha.push(i);
+    save();
+    const tile = view.querySelector(`.tile[data-i="${i}"]`);
+    if (tile) tile.classList.add('seen');
+    const cnt = $('#alphacount');
+    if (cnt) { cnt.textContent = `${state.alpha.length}/${ALPHABET.length} letters seen`; cnt.classList.toggle('ok', state.alpha.length === ALPHABET.length); }
+  }
   const sh = $('#sheet');
   const close = () => { sh.hidden = true; sh.innerHTML = ''; };
   sh.hidden = false;
@@ -487,11 +561,12 @@ function newSession(mode) {
 function renderStudy(fresh, mode) {
   if (fresh || !session) session = newSession(mode);
   const s = session;
-  const header = s.mode === 'due' ? '<div class="daybar solo"><span><b>Review: words due now</b></span></div>' : dayBarHtml();
+  // finishing every card completes the day (marked first so the status strip is already up to date)
+  if (!s.queue.length && s.total && s.mode !== 'due') { prog(s.day).study = true; save(); }
+  const header = s.mode === 'due' ? '<div class="daybar solo"><span><b>Review: words due now</b></span></div>' : dayBarHtml() + statusHtml('study');
   const rerender = () => renderStudy(true);
 
   if (!s.queue.length) {
-    if (s.total && s.mode !== 'due') { prog(s.day).study = true; save(); }
     const last = state.day === LDAYS.length - 1;
     const title = s.total ? '🎉 Lesson complete' : s.mode === 'due' ? 'No words are due' : 'Nothing is due in this day';
     const text = s.total ? `You reviewed ${s.done} card${s.done === 1 ? '' : 's'}. Great work!` : s.mode === 'due' ? 'Come back later, or study the next day.' : 'You already know these words for now. Practise again, or move on.';
@@ -506,7 +581,7 @@ function renderStudy(fresh, mode) {
              <button class="btn alt" id="toquiz">Take the Day ${state.day + 1} quiz</button>
              ${last ? '' : '<button class="btn alt" id="nextday">Next day ▶</button>'}`}
       </section>`;
-    if (s.mode !== 'due') bindDayBar(rerender);
+    if (s.mode !== 'due') bindDayBar(rerender, 'study');
     const bind = (id, fn) => { const el = $('#' + id); if (el) el.onclick = fn; };
     bind('home', () => go('home'));
     bind('again', () => renderStudy(true, 'all'));
@@ -534,7 +609,7 @@ function renderStudy(fresh, mode) {
       : '<button class="btn" id="show">Show answer</button>'}
     ${s.hist.length ? '<button class="btn small" id="prevc">◀ Previous card</button>' : ''}`;
 
-  if (s.mode !== 'due') bindDayBar(rerender);
+  if (s.mode !== 'due') bindDayBar(rerender, 'study');
   $('#say').onclick = (e) => { e.stopPropagation(); speak(c.ru); };
   mountMic(view.querySelector('.mic-slot'), c.ru, c.tr, 'Say it in Russian');
   $('#flash').onclick = () => { if (!s.shown) { s.shown = true; renderStudy(); } };
@@ -570,7 +645,7 @@ function renderQuizSetup() {
   const n = dayCards(state.day).length;
   const q = Math.min(10, n);
   view.innerHTML = `
-    ${dayBarHtml()}
+    ${dayBarHtml()}${statusHtml('quiz')}
     <section class="card">
       <h2>Day ${state.day + 1} quiz</h2>
       <p class="muted">${q} questions from this day's ${n} words.</p>
@@ -583,7 +658,7 @@ function renderQuizSetup() {
       <p class="muted">10 questions from Days 1 to ${state.day + 1}.</p>
       <button class="btn alt" data-m="review">🔁 Start review quiz</button>
     </section>` : ''}`;
-  bindDayBar(renderQuizSetup);
+  bindDayBar(renderQuizSetup, 'quiz');
   view.querySelectorAll('[data-m]').forEach((b) => {
     const m = b.dataset.m;
     b.onclick = () => {
@@ -645,6 +720,7 @@ function renderQz() {
     view.innerHTML = `
       <section class="card center">
         <h2>${qz.score} / ${n}</h2>
+        ${qz.kind === 'day' ? (qz.score / n >= PASS_RATIO ? '<p class="okmsg">✔ Day completed!</p>' : '<p class="muted">Score 70% or more to complete this day.</p>') : ''}
         <p class="muted">${qz.score >= 8 ? 'Excellent! 🎉' : qz.score >= 5 ? 'Good work, keep going.' : 'Keep practising, you will get there.'}</p>
         ${qz.missed.length ? `<div class="missed"><h3>Review these</h3>${qz.missed.map((m) => `<p>${m}</p>`).join('')}</div>` : ''}
         <button class="btn" id="qa">Try again</button>
@@ -708,7 +784,7 @@ function renderSpeak(fresh) {
   const lastWord = sp.i === list.length - 1;
   const lastDay = state.day === LDAYS.length - 1;
   view.innerHTML = `
-    ${dayBarHtml()}
+    ${dayBarHtml()}${statusHtml('speak')}
     <div class="meta"><span>Word ${sp.i + 1}/${list.length}</span><span id="spk">🎤 ${p.spoke.length}/${list.length} passed</span></div>
     <div class="bar"><i style="width:${Math.round((sp.i / list.length) * 100)}%"></i></div>
     <section class="flash" style="min-height:190px">
@@ -723,7 +799,7 @@ function renderSpeak(fresh) {
       <button class="btn alt" id="nw" ${lastWord && lastDay ? 'disabled' : ''}>${lastWord ? 'Next day ▶' : 'Next word ▶'}</button>
     </div>
     <p class="muted center" style="margin-top:12px">Needs internet and microphone permission.</p>`;
-  bindDayBar(() => renderSpeak(true));
+  bindDayBar(() => renderSpeak(true), 'speak');
   $('#say').onclick = () => speak(c.ru);
   mountMic(view.querySelector('.mic-slot'), c.ru, c.tr, undefined, (res) => {
     if (res.g.pass && p.spoke.indexOf(c.ru) < 0) {
@@ -731,6 +807,8 @@ function renderSpeak(fresh) {
       save();
       const el = $('#spk');
       if (el) el.textContent = `🎤 ${p.spoke.length}/${list.length} passed`;
+      const st = view.querySelector('.status');
+      if (st && st.nextElementSibling) { const tmp = document.createElement('div'); tmp.innerHTML = statusHtml('speak'); st.replaceWith(tmp.children[0]); }
     }
   });
   $('#pw').onclick = () => { delete micMemo[c.ru]; sp.i--; renderSpeak(); };
@@ -746,14 +824,20 @@ let conv = null; // running conversation
 
 function renderTalk() {
   conv = null;
+  const done = LSCEN.filter(talkDone).length;
   view.innerHTML = `
     <h2>Conversations</h2>
+    <div class="status"><span class="pill ${done === LSCEN.length ? 'ok' : ''}">${done}/${LSCEN.length} completed</span><span>Score 70% or more to complete one.</span></div>
     <p class="muted">A professional talks to you in Russian and you answer with your voice. You can also swap roles and play the professional.</p>
-    ${LSCEN.map((s, i) => `
+    ${LSCEN.map((s, i) => {
+      const best = state.convBest[s.id] || 0;
+      return `
       <button class="card sc" data-i="${i}">
         <span class="emo">${s.emoji}</span>
-        <span class="scx"><b>${s.title}</b><small>${s.who} · ${s.lines.length} lines${state.convBest[s.id] ? ' · best ' + state.convBest[s.id] + '%' : ''}</small></span>
-      </button>`).join('')}`;
+        <span class="scx"><b>${s.title}</b><small>${s.who} · ${s.lines.length} lines${best ? ' · best ' + best + '%' : ''}</small></span>
+        ${best >= PASS_RATIO * 100 ? '<span class="done">✔ Completed</span>' : ''}
+      </button>`;
+    }).join('')}`;
   view.querySelectorAll('.sc').forEach((b) => { b.onclick = () => renderConvIntro(+b.dataset.i); });
 }
 
@@ -828,6 +912,7 @@ function renderConv(say) {
       <section class="card center">
         <h2>${avg >= 85 ? '🎉 Excellent!' : avg >= 60 ? '👍 Well done!' : '💪 Good start!'}</h2>
         <p class="muted">Your score: <b>${avg}%</b>${conv.skipped ? ` · ${conv.skipped} line${conv.skipped === 1 ? '' : 's'} skipped` : ''}</p>
+        ${avg >= PASS_RATIO * 100 ? '<p class="okmsg">✔ Conversation completed!</p>' : '<p class="muted">Score 70% or more to complete it.</p>'}
         <button class="btn" id="again">Practise again</button>
         <button class="btn alt" id="swap">Swap roles and play again</button>
         <button class="btn alt" id="all">Choose another conversation</button>
@@ -882,6 +967,7 @@ function renderConv(say) {
 
 // ---------- start ----------
 document.querySelectorAll('#nav button').forEach((b) => { b.onclick = () => go(b.dataset.tab); });
+$('#gear').onclick = showSettings;
 $('header').insertAdjacentHTML('beforeend', speedHtml());
 bindSpeed($('header .speed'));
 if ('serviceWorker' in navigator) {

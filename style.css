@@ -125,3 +125,33 @@ nav button.on{color:var(--accent);font-weight:700}
 .pct.good .bar i{background:var(--ok)}
 .pct.mid .bar i{background:#f59e0b}
 .pct.low .bar i{background:var(--bad)}
+.hrow{display:flex;align-items:center;justify-content:space-between}
+#gear{border:0;background:var(--accent2);border-radius:50%;width:38px;height:38px;font-size:18px}
+body.nonav{padding-bottom:24px}
+.lvlcard{cursor:pointer;display:block}
+.lvhead{display:flex;align-items:center;gap:12px}
+.lvhead .lemo{font-size:32px}
+.lvhead .lvt{flex:1;display:flex;flex-direction:column}
+.lvhead .lvt small{color:var(--muted);font-size:13px}
+.lvpct{font-size:22px;font-weight:800;color:var(--accent)}
+.subgrid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:10px}
+.subi{font-size:13px;color:var(--muted);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:6px 8px;display:flex;justify-content:space-between;gap:6px}
+.subi b{color:var(--ink)}
+.subi.full{border-color:var(--ok);background:rgba(22,163,74,.12);color:var(--ok)}
+.card.sub{display:flex;align-items:center;gap:14px;width:100%;text-align:left;color:var(--ink);font-size:16px}
+.card.sub .emo{font-size:28px;min-width:38px;text-align:center}
+.card.sub .scx{flex:1;display:flex;flex-direction:column;gap:3px}
+.card.sub small{color:var(--muted);font-size:13px}
+.mbar{display:block;height:6px;background:var(--accent2);border-radius:99px;overflow:hidden;margin-top:4px}
+.mbar i{display:block;height:100%;background:var(--btn);border-radius:99px}
+.chev{font-size:26px;color:var(--muted)}
+.done{font-size:12px;font-weight:700;color:var(--ok);white-space:nowrap}
+.status{display:flex;flex-wrap:wrap;align-items:center;gap:10px;font-size:13px;color:var(--muted);margin:6px 0 2px}
+.pill{background:var(--accent2);color:var(--ink);border-radius:99px;padding:5px 12px;font-weight:700;font-size:13px}
+.pill.ok{background:rgba(22,163,74,.18);color:var(--ok)}
+.hint{margin:2px 0 8px;font-size:13px}
+.okmsg{color:var(--ok);font-weight:700;margin:6px 0}
+.dayrow{flex-direction:row;justify-content:space-between;align-items:center;gap:8px}
+.dayrow.done small{color:var(--ok);font-weight:700}
+.tile.seen{border-color:var(--ok);background:rgba(22,163,74,.1)}
+.sheet-box.left{text-align:left}

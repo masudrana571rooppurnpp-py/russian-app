@@ -11,12 +11,12 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<header><h1>Русский <span>Russian Start</span></h1></header>
+<header><div class="hrow"><h1>Русский <span>Russian Start</span></h1><button id="gear" aria-label="Settings">⚙️</button></div></header>
 <main id="view"></main>
-<nav id="nav">
-  <button data-tab="home" class="on"><i>🏠</i>Home</button>
-  <button data-tab="alphabet"><i>Аа</i>Alphabet</button>
-  <button data-tab="study"><i>🃏</i>Study</button>
+<nav id="nav" hidden>
+  <button data-tab="home"><i>🏠</i>Home</button>
+  <button data-tab="level"><i>📋</i>Level</button>
+  <button data-tab="study"><i>📖</i>Study</button>
   <button data-tab="quiz"><i>✅</i>Quiz</button>
   <button data-tab="speak"><i>🎤</i>Speak</button>
   <button data-tab="talk"><i>💬</i>Talk</button>
