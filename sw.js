@@ -1,7 +1,7 @@
 // Service worker: makes the app work offline.
 // Network first (so updates show up), cache as a fallback when offline.
-const CACHE = 'russian-start-v9';
-const FILES = ['./', 'index.html', 'style.css', 'data.js', 'app.js', 'manifest.json', 'icon-192.png', 'icon-512.png'];
+const CACHE = 'russian-start-v10';
+const FILES = ['./', 'index.html', 'style.css', 'data.js', 'family.js', 'talk_beginner.js', 'talk_mid.js', 'talk_pro.js', 'gloss.js', 'levels.js', 'app.js', 'manifest.json', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES)));

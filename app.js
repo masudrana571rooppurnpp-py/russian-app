@@ -8,7 +8,8 @@ const INTERVALS = [0, 1, 3, 7, 14, 30, 60]; // days until next review, by "box"
 // ---------- saved progress (stays on your phone) ----------
 let saved = {};
 try { saved = JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) {}
-let state = Object.assign({ cards: {}, streak: 0, lastDay: null, reviewed: { day: null, n: 0 }, level: 'beginner', lv: {}, convBest: {}, hints: true, rate: 0.8, alpha: [], sfx: true }, saved);
+let state = Object.assign({ cards: {}, streak: 0, lastDay: null, reviewed: { day: null, n: 0 }, level: 'beginner', lv: {}, convBest: {}, hints: true, rate: 0.8, alpha: [], sfx: true, voices: {} }, saved);
+if (!state.voices || typeof state.voices !== 'object') state.voices = {};
 if (!(state.rate >= 0.4 && state.rate <= 1.2)) state.rate = 0.8;
 state.alpha = Array.isArray(state.alpha) ? state.alpha.filter((n) => Number.isInteger(n)) : [];
 if (!state.lv || typeof state.lv !== 'object') state.lv = {};
@@ -81,70 +82,87 @@ let VOICES = [];
 function loadVoices() { if ('speechSynthesis' in window) VOICES = speechSynthesis.getVoices() || []; }
 loadVoices();
 if ('speechSynthesis' in window) speechSynthesis.onvoiceschanged = loadVoices;
-const ruVoice = () => VOICES.find((x) => x.lang && x.lang.toLowerCase().replace('_', '-').startsWith('ru'));
+const vLang = (v) => (v.lang || '').toLowerCase().replace('_', '-');
+const voicesFor = (code) => VOICES.filter((v) => vLang(v).startsWith(code));
+// Picks the voice you chose in Settings, otherwise the most natural-sounding one the phone has.
+function bestVoice(code) {
+  const pool = voicesFor(code);
+  const want = state.voices && state.voices[code];
+  if (want) { const f = pool.find((v) => v.voiceURI === want || v.name === want); if (f) return f; }
+  const score = (v) => (/neural|natural|enhanced|premium|wavenet|online/i.test(v.name) ? 4 : 0) + (/google/i.test(v.name) ? 3 : 0) + (v.localService === false ? 1 : 0) + (v.default ? 1 : 0);
+  return pool.slice().sort((a, b) => score(b) - score(a))[0];
+}
+const ruVoice = () => bestVoice('ru');
 const transLink = (text) => 'https://translate.google.com/?sl=ru&tl=en&op=translate&text=' + encodeURIComponent(text);
+
+// Long text is read one sentence at a time: phones cut off or stutter on long utterances.
+const chunkText = (t) => (String(t).match(/[^.!?…;:]+[.!?…;:]*/g) || [String(t)]).map((x) => x.trim()).filter((x) => /\S/.test(x));
+let speakGen = 0;
+let speakKick = null;
+
+// Speaks several pieces one after another, each in its own language, without gaps or cut-offs.
+function speakSeq(parts) {
+  if (!('speechSynthesis' in window)) return;
+  loadVoices();
+  const gen = ++speakGen;
+  clearTimeout(speakKick);
+  if (speechSynthesis.speaking || speechSynthesis.pending) speechSynthesis.cancel();
+  const code = (l) => (l === 'ru-RU' ? 'ru' : 'en');
+  const list = [];
+  parts.forEach((p) => chunkText(p.text).forEach((t) => list.push({ t, lang: p.lang })));
+  // a very short pause after cancel() lets the phone's speech engine reset (avoids a swallowed first word)
+  speakKick = setTimeout(() => {
+    if (gen !== speakGen) return;
+    list.forEach((it, i) => {
+      const u = new SpeechSynthesisUtterance(it.t);
+      u.lang = it.lang;
+      u.rate = state.rate;
+      u.pitch = 1;
+      u.volume = 1;
+      const v = bestVoice(code(it.lang));
+      if (v) u.voice = v;
+      if (i === 0 && it.lang === 'ru-RU') u.onerror = (e) => { if (e && e.error && e.error !== 'canceled' && e.error !== 'interrupted') toast('Sound error (' + e.error + '). See Settings → Sound help.'); };
+      speechSynthesis.speak(u);
+    });
+    if (speechSynthesis.paused) speechSynthesis.resume();
+  }, 60);
+}
 
 function speak(text) {
   if (!('speechSynthesis' in window)) { toast('This browser has no speech. Use the Google Translate link instead.'); return; }
   loadVoices();
-  const v = ruVoice();
-  if (VOICES.length && !v) toast('No Russian voice installed. See "Sound help" on the Home tab.');
-  const u = new SpeechSynthesisUtterance(text);
-  u.lang = 'ru-RU';
-  u.rate = state.rate;
-  u.volume = 1;
-  if (v) u.voice = v;
-  u.onerror = (e) => toast('Sound error (' + ((e && e.error) || 'unknown') + '). See "Sound help" on the Home tab.');
-  if (speechSynthesis.speaking || speechSynthesis.pending) speechSynthesis.cancel();
-  speechSynthesis.speak(u);
-  if (speechSynthesis.paused) speechSynthesis.resume();
+  if (VOICES.length && !ruVoice()) toast('No Russian voice installed. See Settings → Sound help.');
+  speakSeq([{ text, lang: 'ru-RU' }]);
 }
 
-// Speaks several pieces one after another, each in its own language.
-function speakSeq(parts) {
-  if (!('speechSynthesis' in window)) return;
-  loadVoices();
-  if (speechSynthesis.speaking || speechSynthesis.pending) speechSynthesis.cancel();
-  parts.forEach((p) => {
-    const u = new SpeechSynthesisUtterance(p.text);
-    u.lang = p.lang;
-    u.rate = state.rate;
-    u.volume = 1;
-    const v = p.lang === 'ru-RU' ? ruVoice() : VOICES.find((x) => x.lang && x.lang.toLowerCase().replace('_', '-').startsWith('en'));
-    if (v) u.voice = v;
-    speechSynthesis.speak(u);
-  });
-  if (speechSynthesis.paused) speechSynthesis.resume();
-}
-
-// ---------- right / wrong sound effects (made in the browser, no files) ----------
+// ---------- right / wrong sound effects (soft chimes made in the browser, no files) ----------
 let AC = null;
 let fbTimer = null;
 function warmAudio() {
   try { AC = AC || new (window.AudioContext || window.webkitAudioContext)(); if (AC.state === 'suspended') AC.resume(); } catch (e) {}
 }
-// Plays a short happy (right) or low buzzing (wrong) sound. Returns how long to wait before speaking.
+// Right: a gentle rising two-note chime. Wrong: a soft falling two-note tone. Returns how long to wait before speaking.
 function playSfx(ok) {
   if (!state.sfx) return 0;
   try {
     warmAudio();
     if (!AC) return 0;
-    const t0 = AC.currentTime;
-    const notes = ok ? [[660, 0], [880, 0.14]] : [[220, 0], [160, 0.17]];
+    const t0 = AC.currentTime + 0.02;
+    const notes = ok ? [[523.25, 0], [783.99, 0.13]] : [[329.63, 0], [261.63, 0.16]];
     notes.forEach(([f, d]) => {
       const o = AC.createOscillator();
       const g = AC.createGain();
-      o.type = ok ? 'sine' : 'sawtooth';
+      o.type = 'sine';
       o.frequency.value = f;
       g.gain.setValueAtTime(0.0001, t0 + d);
-      g.gain.exponentialRampToValueAtTime(0.22, t0 + d + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, t0 + d + 0.24);
+      g.gain.linearRampToValueAtTime(0.12, t0 + d + 0.04);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + d + 0.42);
       o.connect(g);
       g.connect(AC.destination);
       o.start(t0 + d);
-      o.stop(t0 + d + 0.26);
+      o.stop(t0 + d + 0.45);
     });
-    return 450;
+    return 380;
   } catch (e) { return 0; }
 }
 function sfxThen(ok, fn) {
@@ -191,9 +209,10 @@ function soundCheck() {
   if (!('speechSynthesis' in window)) msg = '❌ This browser cannot speak. Try Chrome.';
   else if (!n) msg = '⚠️ No voices found yet. Tap again in a few seconds. If still 0, install "Speech Services by Google".';
   else if (!v) msg = '❌ ' + n + ' voices found, but none is Russian. Install Russian voice data (steps below).';
-  else msg = '✅ Russian voice found: ' + v.name + '. If you hear nothing, raise the media volume.';
+  else msg = '✅ Using the Russian voice: ' + v.name + '. If you hear nothing, raise the media volume.';
   if (out) out.textContent = msg;
-  speak('Привет! Как дела?');
+  playSfx(true);
+  setTimeout(() => speak('Привет! Как дела? Меня зовут Анна. Приятно познакомиться.'), 400);
 }
 
 // ---------- spaced repetition ----------
@@ -500,6 +519,17 @@ function renderLevel() {
 }
 
 // ---------- settings (⚙): streak, sound help, reset ----------
+function voicePickHtml() {
+  loadVoices();
+  const one = (code, label) => {
+    const list = voicesFor(code);
+    if (list.length < 2) return '';
+    const cur = bestVoice(code);
+    return `<label class="vlab">${label}<select class="vsel" data-code="${code}">${list.map((v) => `<option value="${v.voiceURI || v.name}" ${cur && cur.name === v.name ? 'selected' : ''}>${v.name}</option>`).join('')}</select></label>`;
+  };
+  return one('ru', 'Russian voice') + one('en', 'English voice (for "Correct")');
+}
+
 function showSettings() {
   const t = todayNum();
   const streak = state.lastDay !== null && state.lastDay >= t - 1 ? state.streak : 0;
@@ -520,6 +550,7 @@ function showSettings() {
       <h3>🔔 Sound effects</h3>
       <button class="btn alt" id="sfx">Right / wrong sounds: ${state.sfx ? 'ON' : 'OFF'}</button>
       <h3>🔊 Sound help</h3>
+      ${voicePickHtml()}
       <button class="btn alt" id="sc-test">Test the sound</button>
       <p id="sc-out" style="margin-top:10px"></p>
       <p class="muted">No Russian voice? On Android: Settings → search "Text-to-speech output" → choose <b>Speech Services by Google</b> → ⚙ → <b>Install voice data</b> → <b>Russian</b>. Also raise the media volume. Then restart this app.</p>
@@ -531,6 +562,7 @@ function showSettings() {
   sh.querySelector('.sheet-bg').onclick = close;
   $('#sclose').onclick = close;
   $('#sc-test').onclick = soundCheck;
+  sh.querySelectorAll('.vsel').forEach((el) => { el.onchange = () => { state.voices[el.dataset.code] = el.value; save(); soundCheck(); }; });
   $('#sfx').onclick = () => { state.sfx = !state.sfx; save(); showSettings(); if (state.sfx) playSfx(true); };
   $('#reset').onclick = () => {
     if (confirm('Erase all progress?')) {
@@ -879,6 +911,12 @@ function renderSpeak(fresh) {
 }
 
 // ---------- conversations ----------
+// Every Russian word of a line with its meaning under it (tap a word to hear it).
+const glossHtml = (ru) => `<div class="gl">${lineWords(ru).map((x) => `<span class="gw" data-w="${x.w}"><b>${x.w}</b><em>${x.tr}</em><i>${x.en || '·'}</i></span>`).join('')}</div>`;
+function bindGloss(root) {
+  root.querySelectorAll('.gw').forEach((el) => { el.onclick = () => speak(el.dataset.w); });
+}
+
 let cs = null;   // setup choices (scenario index, which role you play)
 let conv = null; // running conversation
 
@@ -967,7 +1005,7 @@ function renderConv(say) {
   const myEmo = conv.role === 'Y' ? '🙂' : sc.emoji;
   const bub = (l, idx) => {
     const mine = convIsMine(l);
-    return `<div class="bub ${mine ? 'u' : 'p'}"><span class="em">${mine ? myEmo : herEmo}</span><div class="bt"><div class="r">${l[1]}</div><div class="t">${l[2]}</div><div class="e">${l[3]}</div></div>${mine ? '' : `<button class="bsay" data-i="${idx}" aria-label="Hear it">🔊</button>`}</div>`;
+    return `<div class="bub ${mine ? 'u' : 'p'}"><span class="em">${mine ? myEmo : herEmo}</span><div class="bt"><div class="r">${l[1]}</div>${glossHtml(l[1])}<div class="t">${l[2]}</div><div class="e">${l[3]}</div></div>${mine ? '' : `<button class="bsay" data-i="${idx}" aria-label="Hear it">🔊</button>`}</div>`;
   };
   const total = sc.lines.length;
   const myLines = sc.lines.filter((l) => convIsMine(l)).length;
@@ -993,7 +1031,8 @@ function renderConv(say) {
     $('#all').onclick = renderTalk;
     const plf = $('#pl');
     if (plf) plf.onclick = convBack;
-    view.querySelectorAll('.bsay').forEach((b) => { b.onclick = () => speak(conv.log[+b.dataset.i][1], 0.85); });
+    view.querySelectorAll('.bsay').forEach((b) => { b.onclick = () => speak(conv.log[+b.dataset.i][1]); });
+    bindGloss(view);
     return;
   }
 
@@ -1006,7 +1045,7 @@ function renderConv(say) {
     <section class="card turn" id="turn">
       <p class="muted">Your turn · you are the ${myName.toLowerCase()}</p>
       <p class="saythis">Say: <b>${line[3]}</b></p>
-      ${showRu ? `<div class="ru2">${line[1]}</div><div class="trl">${line[2]}</div>` : '<button class="btn alt" id="reveal">Show the Russian</button>'}
+      ${showRu ? `<div class="ru2">${line[1]}</div>${glossHtml(line[1])}<div class="trl">${line[2]}</div>` : '<button class="btn alt" id="reveal">Show the Russian</button>'}
       <div class="chips"><button class="chip" id="hear">🔊 Hear it</button></div>
       <div class="mic-slot"></div>
       <button class="btn" id="cont" ${already ? '' : 'hidden'}>Continue →</button>
@@ -1017,8 +1056,9 @@ function renderConv(say) {
     </section>
     <button class="btn small" id="exit">Stop and go back</button>`;
 
-  view.querySelectorAll('.bsay').forEach((b) => { b.onclick = () => speak(conv.log[+b.dataset.i][1], 0.85); });
-  $('#hear').onclick = () => speak(line[1], 0.85);
+  view.querySelectorAll('.bsay').forEach((b) => { b.onclick = () => speak(conv.log[+b.dataset.i][1]); });
+  bindGloss(view);
+  $('#hear').onclick = () => speak(line[1]);
   const rev = $('#reveal');
   if (rev) rev.onclick = () => { conv.revealed = true; renderConv(); };
   mountMic(view.querySelector('.mic-slot'), line[1], line[2], 'Say it in Russian', (res) => {
@@ -1038,7 +1078,7 @@ function renderConv(say) {
   $('#skip').onclick = () => step(0, true);
   $('#pl').onclick = convBack;
   $('#exit').onclick = renderTalk;
-  if (say) speak(say, 0.85);
+  if (say) speak(say);
   const turn = $('#turn');
   if (turn && turn.scrollIntoView) turn.scrollIntoView({ block: 'center' });
 }
