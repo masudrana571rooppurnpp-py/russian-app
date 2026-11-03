@@ -124,7 +124,6 @@ const DECKS_FAMILY = {
     ["кровать", "kravat", "bed"],
   ],
 };
-const DAYS_FAMILY = buildDays(DECKS_FAMILY);
 
 // Family conversations. Each line: [who, Russian, English]  ("P" = family member, "Y" = you)
 const RAW_FAMILY = [

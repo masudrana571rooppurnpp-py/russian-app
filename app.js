@@ -63,6 +63,7 @@ const dayCards = (di) => ALL.filter((c) => c.day === di);
 const prog = (d) => {
   const p = (state.progress[d] = state.progress[d] || {});
   if (!Array.isArray(p.spoke)) p.spoke = [];
+  if (!Array.isArray(p.studied)) p.studied = [];
   if (typeof p.quiz !== 'number') p.quiz = 0;
   if (typeof p.quizOf !== 'number') p.quizOf = 0;
   return p;
@@ -380,12 +381,17 @@ function dayBarHtml() {
   </div>`;
 }
 function setDay(n) { state.day = Math.max(0, Math.min(LDAYS.length - 1, n)); save(); }
-const PASS_RATIO = 0.7; // a quiz or a conversation counts as completed at 70% or more
+const PASS_RATIO = 0.8; // a quiz or a conversation counts as completed at 80% or more
 
 // Is this day completed for a sub-level? kind: study | quiz | speak
+// Study words said correctly (80% or more) in a day
+function studiedCount(L, di) {
+  const st = (state.lv[L.id].progress[di] || {}).studied || [];
+  return L.days[di].cards.filter((c) => st.indexOf(c[0]) >= 0).length;
+}
 function dayDone(kind, L, di) {
   const p = state.lv[L.id].progress[di] || {};
-  if (kind === 'study') return !!p.study;
+  if (kind === 'study') return studiedCount(L, di) >= L.days[di].cards.length;
   if (kind === 'quiz') return !!p.quizOf && p.quiz / p.quizOf >= PASS_RATIO;
   return !!p.spoke && p.spoke.length >= L.days[di].cards.length;
 }
@@ -395,12 +401,13 @@ const talkDone = (s) => (state.convBest[s.id] || 0) >= PASS_RATIO * 100;
 function levelStats(L) {
   const n = L.days.length;
   const count = (kind) => L.days.filter((d, i) => dayDone(kind, L, i)).length;
-  const items = [
+  const items = n ? [
     { key: 'study', icon: '📖', name: 'Study', done: count('study'), total: n, unit: 'days' },
     { key: 'quiz', icon: '✅', name: 'Quiz', done: count('quiz'), total: n, unit: 'days' },
     { key: 'speak', icon: '🎤', name: 'Speak', done: count('speak'), total: n, unit: 'days' },
-    { key: 'talk', icon: '💬', name: 'Talk', done: L.scenarios.filter(talkDone).length, total: L.scenarios.length, unit: 'conversations' },
-  ];
+  ] : [];
+  items.push(
+    { key: 'talk', icon: '💬', name: 'Talk', done: L.scenarios.filter(talkDone).length, total: L.scenarios.length, unit: 'conversations' });
   if (L.id === 'beginner') items.push({ key: 'alphabet', icon: 'Aa', name: 'Alphabet', done: state.alpha.length, total: ALPHABET.length, unit: 'letters seen' });
   const done = items.reduce((t, i) => t + i.done, 0);
   const total = items.reduce((t, i) => t + i.total, 0);
@@ -408,9 +415,9 @@ function levelStats(L) {
 }
 
 const KIND_HINT = {
-  study: 'Go through all the cards of a day to complete it.',
-  quiz: 'Score 70% or more in the quiz to complete a day.',
-  speak: 'Say every word of the day correctly to complete it.',
+  study: 'Say every word of the day correctly (80% or more) to complete it. Pressing Next alone does not count.',
+  quiz: 'Score 80% or more in the quiz to complete a day.',
+  speak: 'Say every word of the day correctly (80% or more) to complete it.',
 };
 // A small status strip for the sub-level pages: is this day completed, and how many days overall.
 function statusHtml(kind) {
@@ -432,7 +439,7 @@ function pickDay(rerender, kind) {
   const rowStatus = (i) => {
     const p = state.progress[i] || {};
     const ok = dayDone(kind, L, i);
-    if (kind === 'study') return ok ? '✔ Completed' : 'Not completed';
+    if (kind === 'study') return `${ok ? '✔' : '•'} ${studiedCount(L, i)}/${LDAYS[i].cards.length} words`;
     if (kind === 'quiz') return p.quizOf ? `${ok ? '✔' : '•'} ${p.quiz}/${p.quizOf}` : 'Not taken';
     const n = (p.spoke || []).length;
     return `${ok ? '✔' : '•'} ${n}/${LDAYS[i].cards.length} words`;
@@ -463,6 +470,8 @@ function go(tab, opt) {
   const active = tab === 'alphabet' ? 'level' : tab;
   document.querySelectorAll('#nav button').forEach((b) => b.classList.toggle('on', b.dataset.tab === active));
   $('#nav').hidden = tab === 'home';
+  const noDays = !curLevel().days.length;
+  document.querySelectorAll('#nav button').forEach((b) => { b.hidden = noDays && ['study', 'quiz', 'speak'].indexOf(b.dataset.tab) >= 0; });
   document.body.classList.toggle('nonav', tab === 'home');
   window.scrollTo(0, 0);
   if (tab === 'home') renderHome();
@@ -652,6 +661,10 @@ function rateCard(c, s) {
   review(c, m ? (m.g.pass ? (m.g.score >= 0.95 ? 2 : 1) : 0) : 1);
 }
 
+function studyBadge(c, s) {
+  const ok = prog(c.day).studied.indexOf(c.id) >= 0;
+  return `${ok ? '✔ counted' : '🎤 say it to count'} · ${studiedCount(curLevel(), c.day)}/${LDAYS[c.day].cards.length}`;
+}
 function renderStudy(fresh, mode) {
   if (fresh || !session) session = newSession(mode);
   const s = session;
@@ -660,8 +673,10 @@ function renderStudy(fresh, mode) {
 
   if (s.finished || !s.list.length) {
     const last = state.day === LDAYS.length - 1;
-    const title = !s.list.length ? 'No words are due' : s.mode === 'due' ? '🎉 Review complete' : '🎉 Lesson complete';
-    const text = !s.list.length ? 'Come back later, or study the next day.' : `You went through ${s.list.length} card${s.list.length === 1 ? '' : 's'}. Great work!`;
+    const dayOk = s.mode === 'due' || dayDone('study', curLevel(), s.day);
+    const nDone = s.mode === 'due' ? 0 : studiedCount(curLevel(), s.day);
+    const title = !s.list.length ? 'No words are due' : s.mode === 'due' ? '🎉 Review complete' : dayOk ? '🎉 Lesson complete' : '📝 Not completed yet';
+    const text = !s.list.length ? 'Come back later, or study the next day.' : dayOk ? `You went through ${s.list.length} card${s.list.length === 1 ? '' : 's'}. Great work!` : `You said ${nDone} of ${LDAYS[s.day].cards.length} words correctly (80% or more). Say every word correctly to complete this day.`;
     view.innerHTML = `
       ${header}
       <section class="card center">
@@ -669,7 +684,8 @@ function renderStudy(fresh, mode) {
         <p class="muted">${text}</p>
         ${s.mode === 'due' || !s.list.length
           ? '<button class="btn" id="home">Back to the level</button>'
-          : `<button class="btn" id="again">Practise this day again</button>
+          : `${dayOk ? '' : '<button class="btn" id="missing">🎤 Practise the missing words</button>'}
+             <button class="btn ${dayOk ? '' : 'alt'}" id="again">Practise this day again</button>
              <button class="btn alt" id="toquiz">Take the Day ${state.day + 1} quiz</button>
              ${last ? '' : '<button class="btn alt" id="nextday">Next day ▶</button>'}`}
         ${s.list.length ? '<button class="btn small" id="lastcard">◀ Back to the last card</button>' : ''}
@@ -678,6 +694,12 @@ function renderStudy(fresh, mode) {
     const bind = (id, fn) => { const el = $('#' + id); if (el) el.onclick = fn; };
     bind('home', () => go('level'));
     bind('again', () => renderStudy(true));
+    bind('missing', () => {
+      const st = prog(s.day).studied;
+      session = newSession();
+      session.list = session.list.filter((c) => st.indexOf(c.id) < 0);
+      renderStudy();
+    });
     bind('toquiz', () => go('quiz'));
     bind('nextday', () => { setDay(state.day + 1); rerender(); });
     bind('lastcard', () => { s.finished = false; s.i = s.list.length - 1; s.spokenAt = -1; renderStudy(); });
@@ -689,7 +711,7 @@ function renderStudy(fresh, mode) {
   const lastCard = s.i === s.list.length - 1;
   view.innerHTML = `
     ${header}
-    <div class="meta"><span>${s.mode === 'due' ? 'Due words' : 'Day ' + (s.day + 1)}</span><span>Card ${s.i + 1}/${s.list.length}</span></div>
+    <div class="meta"><span>${s.mode === 'due' ? 'Due words' : 'Day ' + (s.day + 1)}</span><span>Card ${s.i + 1}/${s.list.length}${s.mode === 'due' ? '' : ` · <b id="stcount">${studyBadge(c, s)}</b>`}</span></div>
     <div class="bar"><i style="width:${Math.round((s.i / s.list.length) * 100)}%"></i></div>
     <section class="flash">
       ${isNew ? '<span class="badge">NEW</span>' : ''}
@@ -707,13 +729,20 @@ function renderStudy(fresh, mode) {
 
   if (s.mode !== 'due') bindDayBar(rerender, 'study');
   $('#say').onclick = () => speak(c.ru);
-  mountMic(view.querySelector('.mic-slot'), c.ru, c.tr, 'Say it in Russian');
+  mountMic(view.querySelector('.mic-slot'), c.ru, c.tr, 'Say it in Russian', (res) => {
+    if (!res.g.pass) return;
+    const p = prog(c.day);
+    if (p.studied.indexOf(c.id) < 0) {
+      p.studied.push(c.id); save();
+      const el = $('#stcount'); if (el) el.textContent = studyBadge(c, s);
+      if (s.mode !== 'due' && dayDone('study', curLevel(), c.day)) toast('✔ Day ' + (c.day + 1) + ' completed!');
+    }
+  });
   $('#pc').onclick = () => { s.i--; s.spokenAt = -1; renderStudy(); };
   $('#nc').onclick = () => {
     rateCard(c, s);
     if (lastCard) {
       s.finished = true;
-      if (s.mode !== 'due') { prog(s.day).study = true; save(); }
     } else { s.i++; s.spokenAt = -1; }
     renderStudy();
   };
@@ -807,7 +836,7 @@ function renderQz() {
     view.innerHTML = `
       <section class="card center">
         <h2>${score} / ${n}</h2>
-        ${qz.kind === 'day' ? (score / n >= PASS_RATIO ? '<p class="okmsg">✔ Day completed!</p>' : '<p class="muted">Score 70% or more to complete this day.</p>') : ''}
+        ${qz.kind === 'day' ? (score / n >= PASS_RATIO ? '<p class="okmsg">✔ Day completed!</p>' : '<p class="muted">Score 80% or more to complete this day.</p>') : ''}
         <p class="muted">${score >= 8 ? 'Excellent! 🎉' : score >= 5 ? 'Good work, keep going.' : 'Keep practising, you will get there.'}</p>
         ${missed.length ? `<div class="missed"><h3>Review these</h3>${missed.map((m) => `<p>${m}</p>`).join('')}</div>` : ''}
         <button class="btn" id="qa">Try again</button>
@@ -925,7 +954,7 @@ function renderTalk() {
   const done = LSCEN.filter(talkDone).length;
   view.innerHTML = `
     <h2>Conversations</h2>
-    <div class="status"><span class="pill ${done === LSCEN.length ? 'ok' : ''}">${done}/${LSCEN.length} completed</span><span>Score 70% or more to complete one.</span></div>
+    <div class="status"><span class="pill ${done === LSCEN.length ? 'ok' : ''}">${done}/${LSCEN.length} completed</span><span>Score 80% or more to complete one.</span></div>
     <p class="muted">A professional talks to you in Russian and you answer with your voice. You can also swap roles and play the professional.</p>
     ${LSCEN.map((s, i) => {
       const best = state.convBest[s.id] || 0;
@@ -1020,7 +1049,7 @@ function renderConv(say) {
       <section class="card center">
         <h2>${avg >= 85 ? '🎉 Excellent!' : avg >= 60 ? '👍 Well done!' : '💪 Good start!'}</h2>
         <p class="muted">Your score: <b>${avg}%</b>${conv.skipped ? ` · ${conv.skipped} line${conv.skipped === 1 ? '' : 's'} skipped` : ''}</p>
-        ${avg >= PASS_RATIO * 100 ? '<p class="okmsg">✔ Conversation completed!</p>' : '<p class="muted">Score 70% or more to complete it.</p>'}
+        ${avg >= PASS_RATIO * 100 ? '<p class="okmsg">✔ Conversation completed!</p>' : '<p class="muted">Score 80% or more to complete it.</p>'}
         <button class="btn" id="again">Practise again</button>
         ${conv.stack.length ? '<button class="btn alt" id="pl">◀ Previous line</button>' : ''}
         <button class="btn alt" id="swap">Swap roles and play again</button>

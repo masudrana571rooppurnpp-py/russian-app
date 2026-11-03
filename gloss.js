@@ -705,6 +705,172 @@ const GLOSS_TEXT = `
 ложись|lazhis|lie down!
 спокойной|spakoynoy|calm / peaceful
 ночи|nochi|night
+украсили|ookrasili|decorated
+помоги|pamagee|help!
+накрыть|nakryt|to set (a table)
+тарелки|tarelki|plates
+ложки|lozhki|spoons
+вилки|veelki|forks
+дай|day|give!
+отдохни|atdakhnee|rest!
+было|byla|was
+добавка|dabafka|a second helping
+смотрит|smotreet|watches
+ем|yem|I eat
+сам|sam|myself
+готовлю|gatovlyu|I cook
+готовишь|gatoveesh|you cook
+береги|byeryegee|take care of!
+купить|koopeet|to buy
+продукты|prodookty|groceries
+список|speesak|list
+сумку|soomkoo|bag
+бутылки|bootylki|bottles
+другой|droogoy|another
+дешевле|dyeshevlye|cheaper
+посмотрим|pasmotreem|let us look
+красивая|krasivaya|beautiful (f)
+тёплая|tyoplaya|warm (f)
+размер|razmyer|size
+покупаем|pakoopayem|we buy
+кассе|kassye|cashier
+добрая|dobraya|kind (f)
+решить|ryeshit|to decide
+поехать|payekhat|to go (by vehicle)
+море|morye|sea
+августе|avgoostye|August
+поедем|payedyem|we will go
+поезде|poyezdye|train
+удобно|oodobna|convenient
+купишь|koopeesh|you will buy
+гостиница|gastinitsa|hotel
+морем|moryem|sea
+найду|naydoo|I will find
+гостиницу|gastinitsoo|hotel
+интернете|eenternyetye|internet
+поедет|payedyet|will go
+нами|namee|us
+хочет|khochet|wants
+чемоданов|chyemadanof|suitcases
+возьмём|vazmyom|we will take
+сумки|soomki|bags
+знаешь|znayesh|you know
+отличная|atleechnaya|excellent (f)
+поездка|payestka|trip
+чемодан|chyemadan|suitcase
+добро|dobra|good / welcome
+пожаловать|pazhalavat|to come
+дачу|dachoo|country house
+видишь|veedeesh|you see
+сад|sat|garden
+красные|krasnyye|red
+одно|adno|one (n)
+бери|byeree|take!
+огороде|agaradye|vegetable garden
+собрать|sabrat|to gather
+полить|paleet|to water
+дворе|dvaryye|yard
+домом|domam|house
+нашёл|nashol|found
+так|tak|so
+тихо|teekha|quiet
+от|ot|from
+города|garada|city
+сделаем|sdyelayem|we will make
+звёзды|zvyozdy|stars
+дача|dacha|country house
+огород|agarot|vegetable garden
+почему|pachemoo|why
+кровати|kravatee|bed
+лоб|lop|forehead
+горло|gorla|throat
+измерить|eezmyereet|to measure
+температуру|tyemperatooroo|temperature
+градусник|gradoosnik|thermometer
+остаёшься|astayoshsya|you stay
+отдыхаешь|atdykhayesh|you rest
+позвоню|pazvanyu|I will call
+врачу|vrachoo|doctor
+аптеке|aptyekye|pharmacy
+пей|pyey|drink!
+тёплый|tyoply|warm
+правильно|praveelna|correct
+здоров|zdarof|healthy
+заботишься|zabotishsya|you take care
+обо|abo|about
+волнуюсь|valnooyus|I worry
+помнишь|pomneesh|you remember
+красивое|krasivoye|beautiful (n)
+какого|kakova|which
+цвета|tsvyeta|colour
+белое|byeloye|white (n)
+ресторане|ryestaranye|restaurant
+нашего|nashyevo|our
+купи|koopee|buy!
+встреть|fstryet|meet!
+бабушку|babooshkoo|grandmother
+переживай|pyeryezhivay|worry!
+лучший|loochshy|best
+будь|boot|be!
+счастлива|schastleeva|happy (f)
+наступающим|nastoopayushchim|upcoming
+новым|novym|new
+годом|godam|year
+ёлку|yolkoo|fir tree
+подарки|padarki|gifts
+всех|vsyekh|everyone
+положи|palazhee|put!
+их|eekh|them
+под|pod|under
+готовят|gatovyat|they cook
+пойду|paydoo|I will go
+поздравлю|pazdravlyu|I will congratulate
+салют|salyut|fireworks
+полночь|polnach|midnight
+делаем|dyelayem|we do
+желание|zhelaniye|wish
+здоровья|zdarovya|health
+счастья|schastya|happiness
+семье|syemye|family
+самое|samoye|the most
+лучшее|loochsheye|best (n)
+убираем|oobeerayem|we clean
+можешь|mozhesh|you can
+помыть|pameet|to wash
+окна|okna|windows
+комнате|komnatye|room
+тряпка|tryapka|cloth
+ванной|vannoy|bathroom
+помою|pamoyu|I will wash
+пол|pol|floor
+уберу|ooberoo|I will tidy
+кухню|kookhnyu|kitchen
+грязные|gryaznyye|dirty
+мыли|myli|washed
+забудь|zaboot|forget!
+забуду|zaboodoo|I will forget
+быстро|bystra|quickly
+выбросим|vybrosim|we will throw out
+мусор|moosar|rubbish
+пакет|pakyet|bag
+выйду|vyydoo|I will go out
+уборки|ooborki|cleaning
+приготовим|preegatovim|we will cook
+оставила|astavila|left (f)
+тесто|tyesta|dough
+мыть|myt|to wash
+ой|oy|oh
+позвонил|pazvanil|called
+плохая|plakhaya|bad (f)
+идёт|eedyot|goes / is raining
+одета|adyeta|dressed
+ношу|noshoo|I wear
+пьёшь|pyosh|you drink
+ел|yel|ate
+принести|preenyestee|to bring
+целую|tselooyu|I kiss
+воскресенья|vaskryesyenya|Sunday
+приходить|preekhadeet|to come
 `;
 
 const gkey = (w) => w.toLowerCase().replace(/ё/g, 'е');
