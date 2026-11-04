@@ -302,22 +302,22 @@ const MIC_ERR = {
   'no-speech': "I didn't hear anything. Tap the button and speak right away.",
   'audio-capture': '🎤 No microphone found.',
   'network': '🌐 No internet. Speech checking needs a connection.',
-  'language-not-supported': '❌ Russian speech recognition is not available on this device.',
+  'language-not-supported': '❌ Speech recognition for this language is not available on this device.',
 };
 
-// Listens once and reports through callbacks: onstart, onresult(alternatives), onerror(message), onend.
-function listenOnce(cb) {
+// Listens once and reports through callbacks: onstart, onresult(alternatives, confidences), onerror(message), onend.
+function listenOnce(cb, lang) {
   if (!SR) { cb.onerror('❌ This browser has no speech recognition. Open the app in Chrome.'); cb.onend(); return; }
   if ('speechSynthesis' in window) speechSynthesis.cancel();
   try { if (activeRecog) activeRecog.abort(); } catch (e) {}
   const r = new SR();
   activeRecog = r;
-  r.lang = 'ru-RU';
+  r.lang = lang || 'ru-RU';
   r.interimResults = false;
   r.continuous = false;
   r.maxAlternatives = 5;
   let got = false, errored = false;
-  r.onresult = (e) => { got = true; cb.onresult(Array.from(e.results[0]).map((a) => a.transcript)); };
+  r.onresult = (e) => { got = true; cb.onresult(Array.from(e.results[0]).map((a) => a.transcript), Array.from(e.results[0]).map((a) => a.confidence)); };
   r.onerror = (e) => {
     errored = true;
     if (e.error === 'aborted') return;
@@ -469,12 +469,13 @@ function go(tab, opt) {
   sh.hidden = true; sh.innerHTML = '';
   const active = tab === 'alphabet' ? 'level' : tab;
   document.querySelectorAll('#nav button').forEach((b) => b.classList.toggle('on', b.dataset.tab === active));
-  $('#nav').hidden = tab === 'home';
+  $('#nav').hidden = tab === 'home' || tab === 'notes';
   const noDays = !curLevel().days.length;
   document.querySelectorAll('#nav button').forEach((b) => { b.hidden = noDays && ['study', 'quiz', 'speak'].indexOf(b.dataset.tab) >= 0; });
-  document.body.classList.toggle('nonav', tab === 'home');
+  document.body.classList.toggle('nonav', tab === 'home' || tab === 'notes');
   window.scrollTo(0, 0);
   if (tab === 'home') renderHome();
+  else if (tab === 'notes') renderNotes();
   else if (tab === 'level') renderLevel();
   else if (tab === 'alphabet') renderAlphabet();
   else if (tab === 'study') renderStudy(true, opt);
@@ -495,7 +496,12 @@ function renderHome() {
         <div class="bar"><i style="width:${st.pct}%"></i></div>
         <div class="subgrid">${st.items.map((i) => `<span class="subi ${i.done === i.total ? 'full' : ''}">${i.done === i.total ? '✔' : i.icon} ${i.name} <b>${i.done}/${i.total}</b></span>`).join('')}</div>
       </div>`;
-    }).join('')}`;
+    }).join('')}
+    <div class="card lvlcard" role="button" tabindex="0" id="gonotes">
+      <div class="lvhead"><span class="lemo">📝</span><span class="lvt"><b>My Notes</b><small>Save your own words and sentences by voice, with sound and meaning</small></span><span class="lvpct">${(state.notes || []).length}</span></div>
+    </div>`;
+  const gn = $('#gonotes');
+  if (gn) gn.onclick = () => go('notes');
   view.querySelectorAll('[data-lv]').forEach((b) => { b.onclick = () => { setLevel(b.dataset.lv); go('level'); }; });
 }
 

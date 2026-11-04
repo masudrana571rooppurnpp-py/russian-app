@@ -126,7 +126,8 @@ nav button.on{color:var(--accent);font-weight:700}
 .pct.mid .bar i{background:#f59e0b}
 .pct.low .bar i{background:var(--bad)}
 .hrow{display:flex;align-items:center;justify-content:space-between}
-#gear{border:0;background:var(--accent2);border-radius:50%;width:38px;height:38px;font-size:18px}
+#gear,#notesbtn{border:0;background:var(--accent2);border-radius:50%;width:38px;height:38px;font-size:18px}
+.hbtns{display:flex;gap:8px}
 body.nonav{padding-bottom:24px}
 .lvlcard{cursor:pointer;display:block}
 .lvhead{display:flex;align-items:center;gap:12px}
@@ -166,3 +167,21 @@ body.nonav{padding-bottom:24px}
 .turn .gw{align-items:center;text-align:center}
 .vlab{display:block;text-align:left;font-size:13px;color:var(--muted);margin:8px 0}
 .vsel{display:block;width:100%;margin-top:4px;padding:10px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink);font-size:14px}
+
+.nlab{display:block;text-align:left;font-size:13px;color:var(--muted);margin:10px 0 0}
+.nlab small{font-weight:400}
+.nrow{display:flex;gap:8px;margin-top:4px}
+.nin{flex:1;min-width:0;padding:12px;border-radius:12px;border:1px solid var(--line);background:var(--bg);color:var(--ink);font-size:16px;font-family:inherit}
+.nhear,.nx{border:0;background:var(--accent2);border-radius:12px;width:44px;font-size:18px;color:var(--ink)}
+.nhint{margin:8px 0 0;padding:10px;border-radius:12px;background:rgba(245,158,11,.15);font-size:14px}
+.sugs{margin-top:10px}
+.sugs .chip{font-size:15px}
+.note .nru{font-size:22px;font-weight:700;line-height:1.25}
+.note .nsnd{font-size:13px;color:var(--accent)}
+.note .nen{font-size:16px;margin:2px 0 6px}
+.note .nen.none{color:var(--muted);font-style:italic}
+.note .nhead{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px}
+.ntag{font-size:11px;padding:3px 8px;border-radius:99px;background:var(--accent2);color:var(--ink);font-weight:700}
+.note details{margin:6px 0}
+.note summary{font-size:13px;color:var(--muted);cursor:pointer}
+.nsearch{margin:8px 0 0;width:100%}
