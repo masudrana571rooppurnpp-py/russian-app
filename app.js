@@ -459,8 +459,43 @@ function pickDay(rerender, kind) {
   sh.querySelectorAll('.dayrow').forEach((b) => { b.onclick = () => { setDay(+b.dataset.d); close(); rerender(); }; });
 }
 
+// ---------- back button / swipe-back: stay inside the app ----------
+let curNav = null, navStarted = false, restoring = false;
+const navState = (tab, opt, sub) => ({ tab, opt: opt || null, lvl: state.level, sub: sub ? 1 : 0 });
+function pushNav(st) {
+  if (restoring) { curNav = st; return; }
+  try {
+    if (!navStarted) { history.replaceState(st, ''); navStarted = true; }
+    else if (curNav && JSON.stringify(curNav) === JSON.stringify(st)) { /* same screen */ }
+    else if (curNav && curNav.sub && !st.sub) history.replaceState(st, '');
+    else history.pushState(st, '');
+  } catch (e) {}
+  curNav = st;
+}
+// a conversation opened from the list gets its own history step, so "back" returns to the list
+const pushSub = () => pushNav(navState(curNav ? curNav.tab : 'talk', null, true));
+function leaveConv() { if (curNav && curNav.sub) history.back(); else renderTalk(); }
+window.addEventListener('popstate', (e) => {
+  const sh = $('#sheet');
+  if (!sh.hidden) { // back closes an open sheet instead of leaving the screen
+    sh.hidden = true; sh.innerHTML = '';
+    try { history.pushState(curNav, ''); } catch (x) {}
+    return;
+  }
+  let st = e.state;
+  if (!st || !st.tab) return;
+  if (st.sub) { st = navState(st.tab, st.opt); st.lvl = (e.state && e.state.lvl) || st.lvl; try { history.replaceState(st, ''); } catch (x) {} }
+  restoring = true;
+  try {
+    if (st.lvl && st.lvl !== state.level && LEVELS.some((l) => l.id === st.lvl)) setLevel(st.lvl);
+    go(st.tab, st.opt);
+  } finally { restoring = false; }
+  curNav = st;
+});
+
 // ---------- navigation ----------
 function go(tab, opt) {
+  pushNav(navState(tab, opt, false));
   micMemo = {};
   clearTimeout(fbTimer);
   try { if (activeRecog) activeRecog.abort(); } catch (e) {}
@@ -469,10 +504,10 @@ function go(tab, opt) {
   sh.hidden = true; sh.innerHTML = '';
   const active = tab === 'alphabet' ? 'level' : tab;
   document.querySelectorAll('#nav button').forEach((b) => b.classList.toggle('on', b.dataset.tab === active));
-  $('#nav').hidden = tab === 'home' || tab === 'notes';
+  $('#nav').hidden = tab === 'home';
   const noDays = !curLevel().days.length;
   document.querySelectorAll('#nav button').forEach((b) => { b.hidden = noDays && ['study', 'quiz', 'speak'].indexOf(b.dataset.tab) >= 0; });
-  document.body.classList.toggle('nonav', tab === 'home' || tab === 'notes');
+  document.body.classList.toggle('nonav', tab === 'home');
   window.scrollTo(0, 0);
   if (tab === 'home') renderHome();
   else if (tab === 'notes') renderNotes();
@@ -971,7 +1006,7 @@ function renderTalk() {
         ${best >= PASS_RATIO * 100 ? '<span class="done">✔ Completed</span>' : ''}
       </button>`;
     }).join('')}`;
-  view.querySelectorAll('.sc').forEach((b) => { b.onclick = () => renderConvIntro(+b.dataset.i); });
+  view.querySelectorAll('.sc').forEach((b) => { b.onclick = () => { pushSub(); renderConvIntro(+b.dataset.i); }; });
 }
 
 function renderConvIntro(i, role) {
@@ -993,7 +1028,7 @@ function renderConvIntro(i, role) {
       <div class="chips"><button class="chip ${state.hints ? 'on' : ''}" id="hint">Show the Russian text: ${state.hints ? 'ON' : 'OFF'}</button></div>
       <button class="btn" id="start">Start conversation</button>
     </section>`;
-  $('#cb').onclick = renderTalk;
+  $('#cb').onclick = leaveConv;
   view.querySelectorAll('[data-role]').forEach((b) => { b.onclick = () => renderConvIntro(i, b.dataset.role); });
   $('#hint').onclick = () => { state.hints = !state.hints; save(); renderConvIntro(i, cs.role); };
   $('#start').onclick = () => startConv(i, cs.role);
@@ -1032,6 +1067,11 @@ function convBack() {
   renderConv(last && !convIsMine(last) ? last[1] : null);
 }
 
+// 📝 beside every line: save it to My Notes
+function bindNoteButtons() {
+  view.querySelectorAll('.bnote').forEach((b) => { b.onclick = () => { const l = conv.log[+b.dataset.i]; saveNote(l[1], l[3]); }; });
+}
+
 function renderConv(say) {
   const sc = conv.sc;
   const herName = conv.role === 'Y' ? sc.who : sc.youLabel;
@@ -1040,7 +1080,7 @@ function renderConv(say) {
   const myEmo = conv.role === 'Y' ? '🙂' : sc.emoji;
   const bub = (l, idx) => {
     const mine = convIsMine(l);
-    return `<div class="bub ${mine ? 'u' : 'p'}"><span class="em">${mine ? myEmo : herEmo}</span><div class="bt"><div class="r">${l[1]}</div>${glossHtml(l[1])}<div class="t">${l[2]}</div><div class="e">${l[3]}</div></div>${mine ? '' : `<button class="bsay" data-i="${idx}" aria-label="Hear it">🔊</button>`}</div>`;
+    return `<div class="bub ${mine ? 'u' : 'p'}"><span class="em">${mine ? myEmo : herEmo}</span><div class="bt"><div class="r">${l[1]}</div>${glossHtml(l[1])}<div class="t">${l[2]}</div><div class="e">${l[3]}</div></div><span class="bbtns">${mine ? '' : `<button class="bsay" data-i="${idx}" aria-label="Hear it">🔊</button>`}<button class="bnote" data-i="${idx}" aria-label="Save to My Notes">📝</button></span></div>`;
   };
   const total = sc.lines.length;
   const myLines = sc.lines.filter((l) => convIsMine(l)).length;
@@ -1059,14 +1099,17 @@ function renderConv(say) {
         <button class="btn" id="again">Practise again</button>
         ${conv.stack.length ? '<button class="btn alt" id="pl">◀ Previous line</button>' : ''}
         <button class="btn alt" id="swap">Swap roles and play again</button>
+        <button class="btn alt" id="mynotes">📖 My Notes</button>
         <button class="btn alt" id="all">Choose another conversation</button>
       </section>`;
     $('#again').onclick = () => startConv(LSCEN.indexOf(sc), conv.role);
     $('#swap').onclick = () => startConv(LSCEN.indexOf(sc), conv.role === 'Y' ? 'P' : 'Y');
-    $('#all').onclick = renderTalk;
+    $('#all').onclick = leaveConv;
     const plf = $('#pl');
     if (plf) plf.onclick = convBack;
     view.querySelectorAll('.bsay').forEach((b) => { b.onclick = () => speak(conv.log[+b.dataset.i][1]); });
+    bindNoteButtons();
+    $('#mynotes').onclick = showNotesSheet;
     bindGloss(view);
     return;
   }
@@ -1081,7 +1124,7 @@ function renderConv(say) {
       <p class="muted">Your turn · you are the ${myName.toLowerCase()}</p>
       <p class="saythis">Say: <b>${line[3]}</b></p>
       ${showRu ? `<div class="ru2">${line[1]}</div>${glossHtml(line[1])}<div class="trl">${line[2]}</div>` : '<button class="btn alt" id="reveal">Show the Russian</button>'}
-      <div class="chips"><button class="chip" id="hear">🔊 Hear it</button></div>
+      <div class="chips"><button class="chip" id="hear">🔊 Hear it</button><button class="chip" id="savenote">📝 Save this line</button><button class="chip" id="mynotes">📖 My Notes</button></div>
       <div class="mic-slot"></div>
       <button class="btn" id="cont" ${already ? '' : 'hidden'}>Continue →</button>
       <div class="row2">
@@ -1093,6 +1136,9 @@ function renderConv(say) {
 
   view.querySelectorAll('.bsay').forEach((b) => { b.onclick = () => speak(conv.log[+b.dataset.i][1]); });
   bindGloss(view);
+  bindNoteButtons();
+  $('#savenote').onclick = () => saveNote(line[1], line[3]);
+  $('#mynotes').onclick = showNotesSheet;
   $('#hear').onclick = () => speak(line[1]);
   const rev = $('#reveal');
   if (rev) rev.onclick = () => { conv.revealed = true; renderConv(); };
@@ -1112,7 +1158,7 @@ function renderConv(say) {
   $('#cont').onclick = () => step(Math.max(conv.lineBest, micMemo[line[1]] ? micMemo[line[1]].g.score : 0), false);
   $('#skip').onclick = () => step(0, true);
   $('#pl').onclick = convBack;
-  $('#exit').onclick = renderTalk;
+  $('#exit').onclick = leaveConv;
   if (say) speak(say);
   const turn = $('#turn');
   if (turn && turn.scrollIntoView) turn.scrollIntoView({ block: 'center' });

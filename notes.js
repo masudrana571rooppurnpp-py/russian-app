@@ -392,6 +392,49 @@ function drawList() {
   });
 }
 
+// ---------- used from the conversations ----------
+// saves one line to My Notes (no duplicates)
+function saveNote(ru, en) {
+  ru = tidy(ru); en = tidy(en);
+  if (!ru) return false;
+  if (state.notes.some((n) => norm(n.ru) === norm(ru))) { toast('📝 Already in My Notes'); return false; }
+  state.notes.push({ id: Date.now() + '' + Math.floor(Math.random() * 1000), ru, en, added: Date.now() });
+  save();
+  toast('📝 Saved to My Notes');
+  return true;
+}
+
+// My Notes as a pop-up, so you can look at them without leaving the conversation
+function showNotesSheet() {
+  const sh = $('#sheet');
+  const list = state.notes.slice().sort((a, b) => b.added - a.added);
+  sh.hidden = false;
+  sh.innerHTML = `
+    <div class="sheet-bg"></div>
+    <div class="sheet-box left">
+      <h2>📝 My Notes</h2>
+      <div class="nsheet">${list.length ? list.map((n) => `
+        <div class="nitem" data-id="${esc(n.id)}">
+          ${n.ru ? `<b>${esc(n.ru)}</b>${lineSound(n.ru) ? `<small>${esc(lineSound(n.ru))}</small>` : ''}` : ''}
+          <div class="nen">${esc(n.en || '')}</div>
+          <div class="chips">${n.ru ? '<button class="chip" data-hru>🔊 Russian</button>' : ''}${n.en ? '<button class="chip" data-hen>🔊 English</button>' : ''}</div>
+        </div>`).join('') : '<p class="muted">No notes yet. Tap 📝 beside any line to save it here.</p>'}</div>
+      <button class="btn alt" id="nsopen">Open My Notes (add by voice)</button>
+      <button class="btn alt" id="nsclose">Close</button>
+    </div>`;
+  const close = () => { sh.hidden = true; sh.innerHTML = ''; };
+  sh.querySelector('.sheet-bg').onclick = close;
+  $('#nsclose').onclick = close;
+  $('#nsopen').onclick = () => { close(); go('notes'); };
+  sh.querySelectorAll('.nitem').forEach((el) => {
+    const n = state.notes.find((x) => x.id === el.dataset.id);
+    if (!n) return;
+    const on = (sel, fn) => { const b = el.querySelector(sel); if (b) b.onclick = fn; };
+    on('[data-hru]', () => speak(n.ru));
+    on('[data-hen]', () => hearEn(n.en));
+  });
+}
+
 // ---------- start ----------
 $('#notesbtn').onclick = () => go('notes');
 go('home'); // redraw Home now that the notes are loaded
