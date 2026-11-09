@@ -705,6 +705,66 @@ const GLOSS_TEXT = `
 ложись|lazhis|lie down!
 спокойной|spakoynoy|calm / peaceful
 ночи|nochi|night
+благодарю|blagadaryu|I thank (thank you)
+прекрасно|pryekrasna|wonderful
+спали|spali|slept (you)
+прошу|proshoo|I ask / please
+завтракайте|zaftrakaytye|have breakfast!
+желаете|zhelayetye|you wish
+собираетесь|sabeeraetyes|you plan to
+придёте|preedyotye|you will come
+возьмите|vazmeetye|take!
+пока|paka|for now / yet
+её|yeyo|her / it
+ваше|vashe|your (n)
+кушайте|kooshaytye|eat!
+едите|yedeetye|you eat
+забывайте|zabyvaytye|forget!
+волнуйтесь|valnooytyes|worry!
+работали|rabotali|you worked
+этого|etava|this
+добры|dobry|kind (you are)
+вами|vamee|you (with)
+заняты|zanyaty|busy
+ничем|neechyem|nothing
+желаю|zhelayu|I wish
+выросли|vyrosli|you grew
+доехали|dayekhali|you arrived (by vehicle)
+устали|oostali|you are tired
+поможете|pamozhetye|you will help
+приедете|preeyedyetye|you will come
+передайте|pyeryedaytye|pass on!
+мои|mayee|my (pl)
+добрые|dobryye|kind
+пожелания|pazhelaniya|wishes
+звоните|zvaneetye|call!
+пишете|peeshetye|you write
+ложитесь|lazhityes|lie down!
+позвольте|pazvolte|allow me
+отдохните|atdakhneetye|rest!
+привет|preevyet|regards / hi
+готовите|gatoveetye|you cook
+берегите|byeryegeetye|take care of!
+недорого|nyedoroga|not expensive
+купите|koopeetye|buy!
+знаете|znayetye|you know
+видите|veedeetye|you see
+берите|byereetye|take!
+небольшая|nyebalshaya|small (f)
+остаётесь|astayotyes|you stay
+отдыхаете|atdykhayetye|you rest
+заботитесь|zabotityes|you take care
+помните|pomneetye|you remember
+встретьте|fstryetyte|meet!
+переживайте|pyeryezhivaytye|worry!
+будьте|bootye|be!
+счастливы|schastleevy|happy (you)
+положите|palazheetye|put!
+забудьте|zabootye|forget!
+говорит|gavareet|speaks
+позвонили|pazvaneeli|you called
+одеты|adyety|dressed
+ели|yeli|ate
 украсили|ookrasili|decorated
 помоги|pamagee|help!
 накрыть|nakryt|to set (a table)

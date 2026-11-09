@@ -40,20 +40,20 @@ const ALPHABET = [
 // Each card: [Russian, pronunciation, English]
 const DECKS = {
   "Greetings": [
-    ["Привет", "preevyet", "hi"],
+    ["Приветствую вас", "preevyetstvuyu vas", "greetings (formal)"],
     ["Здравствуйте", "zdrastvooyte", "hello (formal)"],
     ["Доброе утро", "dobraye ootra", "good morning"],
     ["Добрый день", "dobry dyen", "good afternoon"],
     ["Добрый вечер", "dobry vyecher", "good evening"],
     ["Спокойной ночи", "spakoynoy nochee", "good night"],
     ["До свидания", "da sveedaniya", "goodbye"],
-    ["Пока", "paka", "bye (informal)"],
+    ["Всего доброго", "fsyevo dobrava", "all the best (formal goodbye)"],
     ["Пожалуйста", "pazhalusta", "please / you're welcome"],
     ["Спасибо", "spaseeba", "thank you"],
     ["Извините", "eezveeneetye", "excuse me / sorry"],
     ["Да", "da", "yes"],
     ["Нет", "nyet", "no"],
-    ["Как дела?", "kak deela", "how are you?"],
+    ["Как ваши дела?", "kak vashy dyela", "how are you? (formal)"],
     ["Хорошо", "kharasho", "good / well"],
     ["Плохо", "plokha", "bad / badly"],
     ["Меня зовут…", "meenya zavoot", "my name is…"],
@@ -63,7 +63,7 @@ const DECKS = {
   ],
   "Pronouns": [
     ["я", "ya", "I"],
-    ["ты", "ty", "you (informal)"],
+    ["вам", "vam", "to you (formal)"],
     ["он", "on", "he"],
     ["она", "ana", "she"],
     ["оно", "ano", "it"],

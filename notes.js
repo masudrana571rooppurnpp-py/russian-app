@@ -179,18 +179,20 @@ function drawAdd() {
       <button class="chip ${nt.src === 'ru' ? 'on' : ''}" data-src="ru">🇷🇺 I will speak Russian</button>
       <button class="chip ${nt.src === 'en' ? 'on' : ''}" data-src="en">🇬🇧 I will speak English</button>
     </div>
-    <button class="btn mic ${nt.busy ? 'rec' : ''}" id="nmic" ${nt.busy ? 'disabled' : ''}>${nt.busy ? '🎤 Listening… speak now' : '🎤 Tap, then say a word or sentence'}</button>
+    <button class="btn mic ${nt.busy ? 'rec' : ''}" id="nmic">${nt.busy ? '✋ Tap here when you have finished' : '🎤 Tap, then say a word or sentence'}</button>
+    ${nt.busy ? '<p class="fb live" id="nlive">🎤 Listening… speak at your own pace</p>' : ''}
     ${nt.msg ? `<p class="fb">${esc(nt.msg)}</p>` : ''}
     ${nt.draft ? draftHtml() : '<button class="btn small" id="ntype">✍️ Type it instead</button>'}`;
   box.querySelectorAll('[data-src]').forEach((b) => { b.onclick = () => { nt.src = b.dataset.src; if (nt.draft && !nt.draft.editId) nt.draft = null; nt.msg = ''; drawAdd(); }; });
-  $('#nmic').onclick = noteListen;
+  $('#nmic').onclick = nt.busy ? () => { if (nt.ctl) nt.ctl.stop(); } : noteListen;
   const ty = $('#ntype');
   if (ty) ty.onclick = () => { nt.draft = newDraft(nt.src, ''); drawAdd(); const el = $('#d-' + nt.src); if (el) el.focus(); };
   if (nt.draft) bindDraft();
 }
 
 function noteListen() {
-  listenOnce({
+  nt.ctl = listenOnce({
+    oninterim: (t) => { const el = $('#nlive'); if (el) el.textContent = t ? '🎤 ' + t : '🎤 Listening…'; },
     onstart: () => { nt.busy = true; nt.msg = ''; drawAdd(); },
     onresult: gotSpeech,
     onerror: (m) => { nt.msg = m + ' Speak clearly and a little closer, or tap "Type it instead".'; },

@@ -8,7 +8,8 @@ const INTERVALS = [0, 1, 3, 7, 14, 30, 60]; // days until next review, by "box"
 // ---------- saved progress (stays on your phone) ----------
 let saved = {};
 try { saved = JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) {}
-let state = Object.assign({ cards: {}, streak: 0, lastDay: null, reviewed: { day: null, n: 0 }, level: 'beginner', lv: {}, convBest: {}, hints: true, rate: 0.8, alpha: [], sfx: true, voices: {} }, saved);
+let state = Object.assign({ cards: {}, streak: 0, lastDay: null, reviewed: { day: null, n: 0 }, level: 'beginner', lv: {}, convBest: {}, hints: true, rate: 0.8, alpha: [], sfx: true, voices: {}, wait: 3.5 }, saved);
+if (!(state.wait >= 1.5 && state.wait <= 8)) state.wait = 3.5;
 if (!state.voices || typeof state.voices !== 'object') state.voices = {};
 if (!(state.rate >= 0.4 && state.rate <= 1.2)) state.rate = 0.8;
 state.alpha = Array.isArray(state.alpha) ? state.alpha.filter((n) => Number.isInteger(n)) : [];
@@ -305,30 +306,74 @@ const MIC_ERR = {
   'language-not-supported': '❌ Speech recognition for this language is not available on this device.',
 };
 
-// Listens once and reports through callbacks: onstart, onresult(alternatives, confidences), onerror(message), onend.
+// Listens once and reports through callbacks: onstart, oninterim(textSoFar), onresult(alternatives, confidences), onerror(message), onend.
+// It keeps listening through short pauses (the "listening patience" in Settings), so slow speakers are not cut off.
+// Returns { stop() } so the person can finish early.
 function listenOnce(cb, lang) {
-  if (!SR) { cb.onerror('❌ This browser has no speech recognition. Open the app in Chrome.'); cb.onend(); return; }
+  const ctl = { stop() {} };
+  if (!SR) { cb.onerror('❌ This browser has no speech recognition. Open the app in Chrome.'); cb.onend(); return ctl; }
   if ('speechSynthesis' in window) speechSynthesis.cancel();
   try { if (activeRecog) activeRecog.abort(); } catch (e) {}
   const r = new SR();
   activeRecog = r;
   r.lang = lang || 'ru-RU';
-  r.interimResults = false;
-  r.continuous = false;
+  r.interimResults = true;
+  r.continuous = true;
   r.maxAlternatives = 5;
-  let got = false, errored = false;
-  r.onresult = (e) => { got = true; cb.onresult(Array.from(e.results[0]).map((a) => a.transcript), Array.from(e.results[0]).map((a) => a.confidence)); };
+  const waitMs = Math.round((state.wait || 3.5) * 1000);
+  let segs = [], interim = '', errored = false, ended = false, timer = null, hard = null;
+  const finish = () => { clearTimeout(timer); try { r.stop(); } catch (e) {} };
+  const bump = (ms) => { clearTimeout(timer); timer = setTimeout(finish, ms); };
+  ctl.stop = finish;
+  const live = () => segs.map((x) => x.alts[0]).concat(interim ? [interim] : []).join(' ');
+  r.onspeechstart = () => bump(waitMs);
+  r.onresult = (e) => {
+    const finals = [];
+    let tmp = '';
+    for (let i = 0; i < e.results.length; i++) {
+      const res = e.results[i];
+      if (res.isFinal !== false) finals.push({ alts: Array.from(res).map((a) => a.transcript), confs: Array.from(res).map((a) => a.confidence) });
+      else tmp += (tmp ? ' ' : '') + res[0].transcript;
+    }
+    // some phones repeat earlier text in later results: keep each piece once
+    segs = [];
+    finals.forEach((f) => {
+      const last = segs[segs.length - 1];
+      const t = norm(f.alts[0]), lt = last ? norm(last.alts[0]) : '';
+      if (!last) segs.push(f);
+      else if (t === lt) return;
+      else if (t.indexOf(lt) === 0) segs[segs.length - 1] = f;
+      else segs.push(f);
+    });
+    interim = tmp;
+    bump(waitMs);
+    if (cb.oninterim) cb.oninterim(live());
+  };
   r.onerror = (e) => {
     errored = true;
     if (e.error === 'aborted') return;
+    if (e.error === 'no-speech' && (segs.length || interim)) return;
     cb.onerror(MIC_ERR[e.error] || 'Could not listen (' + e.error + '). Try again.');
   };
   r.onend = () => {
-    if (!got && !errored) cb.onerror("I didn't catch that. Try again.");
+    if (ended) return;
+    ended = true;
+    clearTimeout(timer); clearTimeout(hard);
+    if (segs.length === 1) cb.onresult(segs[0].alts, segs[0].confs);
+    else if (segs.length > 1) {
+      const cs = segs.map((x) => (typeof x.confs[0] === 'number' ? x.confs[0] : 1));
+      cb.onresult([segs.map((x) => x.alts[0]).join(' ')], [cs.reduce((a, b) => a + b, 0) / cs.length]);
+    } else if (interim) cb.onresult([interim], [0.5]);
+    else if (!errored) cb.onerror("I didn't catch that. Try again.");
     cb.onend();
   };
   cb.onstart();
-  try { r.start(); } catch (e) { cb.onerror('Could not start the microphone. Try again.'); cb.onend(); }
+  try {
+    r.start();
+    bump(10000);               // nothing said at all: give up after 10 s
+    hard = setTimeout(finish, 30000); // never listen longer than 30 s
+  } catch (e) { cb.onerror('Could not start the microphone. Try again.'); cb.onend(); }
+  return ctl;
 }
 
 function feedbackHtml(res) {
@@ -345,16 +390,17 @@ function feedbackHtml(res) {
 // Puts a "say it" button and its feedback into an empty slot element. Works on any screen.
 function mountMic(slot, target, tr, label, onResult) {
   if (!slot) return;
-  let busy = false, msg = '';
+  let busy = false, msg = '', ctl = null;
   let res = micMemo[target] || null;
   const draw = () => {
-    slot.innerHTML = `<button class="btn mic ${busy ? 'rec' : ''}" ${busy ? 'disabled' : ''}>${busy ? '🎤 Listening… speak now' : '🎤 ' + (label || 'Tap, then say it in Russian')}</button>${msg ? `<p class="fb">${msg}</p>` : ''}${res ? feedbackHtml(res) : ''}`;
+    slot.innerHTML = `<button class="btn mic ${busy ? 'rec' : ''}">${busy ? '✋ Tap here when you have finished' : '🎤 ' + (label || 'Tap, then say it in Russian')}</button>${busy ? '<p class="fb live">🎤 Listening… speak at your own pace</p>' : ''}${msg ? `<p class="fb">${msg}</p>` : ''}${res ? feedbackHtml(res) : ''}`;
     const b = slot.querySelector('button');
-    if (b) b.onclick = start;
+    if (b) b.onclick = busy ? () => { if (ctl) ctl.stop(); } : start;
     const again = slot.querySelector('[data-again]');
     if (again) again.onclick = () => speakFeedback(res, target);
   };
-  const start = () => listenOnce({
+  const start = () => { ctl = listenOnce({
+    oninterim: (t) => { const el = slot.querySelector('.live'); if (el) el.textContent = t ? '🎤 ' + t : '🎤 Listening…'; },
     onstart: () => { busy = true; msg = ''; res = null; delete micMemo[target]; draw(); },
     onresult: (alts) => {
       const t = norm(target);
@@ -367,7 +413,7 @@ function mountMic(slot, target, tr, label, onResult) {
     },
     onerror: (m) => { msg = m; },
     onend: () => { busy = false; draw(); },
-  });
+  }); };
   draw();
 }
 
@@ -597,6 +643,9 @@ function showSettings() {
         <div><b>${today}</b><span>reviews today</span></div>
         <div><b>${started}</b><span>words started</span></div>
       </section>
+      <h3>🎤 Listening patience</h3>
+      <p class="muted" style="margin:0 0 6px">How long the app waits in silence before it stops listening. Choose a longer time if you speak slowly.</p>
+      <div class="chips" id="waitchips">${[[2.5, 'Normal'], [3.5, 'Patient'], [5, 'Very patient']].map(([v, l]) => `<button class="chip ${state.wait === v ? 'on' : ''}" data-w="${v}">${l} · ${v}s</button>`).join('')}</div>
       <h3>🔔 Sound effects</h3>
       <button class="btn alt" id="sfx">Right / wrong sounds: ${state.sfx ? 'ON' : 'OFF'}</button>
       <h3>🔊 Sound help</h3>
@@ -613,6 +662,7 @@ function showSettings() {
   $('#sclose').onclick = close;
   $('#sc-test').onclick = soundCheck;
   sh.querySelectorAll('.vsel').forEach((el) => { el.onchange = () => { state.voices[el.dataset.code] = el.value; save(); soundCheck(); }; });
+  sh.querySelectorAll('[data-w]').forEach((b) => { b.onclick = () => { state.wait = +b.dataset.w; save(); showSettings(); }; });
   $('#sfx').onclick = () => { state.sfx = !state.sfx; save(); showSettings(); if (state.sfx) playSfx(true); };
   $('#reset').onclick = () => {
     if (confirm('Erase all progress?')) {
