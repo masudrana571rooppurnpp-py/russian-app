@@ -26,7 +26,48 @@ for (const l of LEVELS) {
 // state.day and state.progress always point at the current level
 Object.defineProperty(state, 'day', { get() { return state.lv[state.level].day; }, set(v) { state.lv[state.level].day = v; } });
 Object.defineProperty(state, 'progress', { get() { return state.lv[state.level].progress; }, set(v) { state.lv[state.level].progress = v; } });
-const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} };
+// ---------- safety copy: a second place for your progress, plus a request that the phone never clears it ----------
+const idb = (mode, fn) => new Promise((res) => {
+  try {
+    const rq = indexedDB.open('russian-start-backup', 1);
+    rq.onupgradeneeded = () => rq.result.createObjectStore('kv');
+    rq.onerror = () => res(null);
+    rq.onsuccess = () => { try { const tx = rq.result.transaction('kv', mode); const out = fn(tx.objectStore('kv')); tx.oncomplete = () => res(out && out.result !== undefined ? out.result : null); tx.onerror = () => res(null); } catch (e) { res(null); } };
+  } catch (e) { res(null); }
+});
+let mirrorTimer = null;
+const mirror = (txt) => { clearTimeout(mirrorTimer); mirrorTimer = setTimeout(() => idb('readwrite', (st) => st.put(txt, 'state')), 400); };
+try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
+const save = () => { try { const txt = JSON.stringify(state); localStorage.setItem(KEY, txt); mirror(txt); } catch (e) {} };
+// if the phone wiped the normal storage, bring the safety copy back
+(function restoreIfWiped() {
+  let have = false;
+  try { have = !!localStorage.getItem(KEY); } catch (e) { return; }
+  if (have) { try { mirror(localStorage.getItem(KEY)); } catch (e) {} return; }
+  idb('readonly', (st) => st.get('state')).then((txt) => {
+    if (!txt) return;
+    try { const o = JSON.parse(txt); if (o && typeof o === 'object') { localStorage.setItem(KEY, txt); location.reload(); } } catch (e) {}
+  });
+})();
+function backupNow() {
+  const blob = new Blob([JSON.stringify(state)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'russian-start-backup-' + new Date().toISOString().slice(0, 10) + '.json';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+function restoreFromFile(file) {
+  const rd = new FileReader();
+  rd.onload = () => {
+    try {
+      const o = JSON.parse(rd.result);
+      if (!o || typeof o !== 'object' || !o.lv) throw 0;
+      localStorage.setItem(KEY, JSON.stringify(o)); mirror(JSON.stringify(o)); location.reload();
+    } catch (e) { alert('This file is not a Russian Start backup.'); }
+  };
+  rd.readAsText(file);
+}
 
 // ---------- helpers ----------
 const todayNum = () => {
@@ -655,6 +696,11 @@ function showSettings() {
       <p class="muted">No Russian voice? On Android: Settings → search "Text-to-speech output" → choose <b>Speech Services by Google</b> → ⚙ → <b>Install voice data</b> → <b>Russian</b>. Also raise the media volume. Then restart this app.</p>
       <h3>How to learn</h3>
       <p class="muted">Pick a level on the home page. Inside it, work through Study, Quiz, Speak and Talk day by day. In every section tap 🎤 and say the word aloud: the voice tells you if it is correct. Come back every day: the app brings old words back just before you forget them.</p>
+      <h3>💾 Backup</h3>
+      <p class="muted" style="margin:0 0 6px">Your words, notes and progress are kept on this phone and copied to a safety store. Save a backup file now and then, to be extra safe.</p>
+      <button class="btn alt" id="bk">Save backup file</button>
+      <button class="btn alt" id="rs">Restore from backup file</button>
+      <input type="file" id="rsf" accept=".json,application/json" hidden>
       <button class="btn small" id="reset">Reset my progress</button>
       <button class="btn alt" id="sclose">Close</button>
     </div>`;
@@ -663,6 +709,9 @@ function showSettings() {
   $('#sc-test').onclick = soundCheck;
   sh.querySelectorAll('.vsel').forEach((el) => { el.onchange = () => { state.voices[el.dataset.code] = el.value; save(); soundCheck(); }; });
   sh.querySelectorAll('[data-w]').forEach((b) => { b.onclick = () => { state.wait = +b.dataset.w; save(); showSettings(); }; });
+  $('#bk').onclick = backupNow;
+  $('#rs').onclick = () => $('#rsf').click();
+  $('#rsf').onchange = (e) => { if (e.target.files[0]) restoreFromFile(e.target.files[0]); };
   $('#sfx').onclick = () => { state.sfx = !state.sfx; save(); showSettings(); if (state.sfx) playSfx(true); };
   $('#reset').onclick = () => {
     if (confirm('Erase all progress?')) {
